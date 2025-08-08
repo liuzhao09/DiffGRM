@@ -11,8 +11,6 @@ logs/
 *.log
 
 # Training outputs / temp
-runs/
-*.tmp
 
 # Custom project directories to ignore
 ckpt/
