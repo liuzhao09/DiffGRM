@@ -26,8 +26,8 @@ beam_search_modes: ["confidence", "random"]   # 顺序决定日志展示顺序
 
 # ─── 新增：random-beam 的采样超参（示例） ────────────────────
 random_beam:
-  beam_act: 128        # 👈 你要的 "random_beam_size"
-  beam_max: 128
+  beam_act: 64        # 👈 你要的 "random_beam_size"
+  beam_max: 64
   seed: 42            # 保留，用来固定随机列顺序
 
 # Generation - 向量化Beam Search配置（统一管理）
