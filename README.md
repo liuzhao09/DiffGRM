@@ -126,16 +126,21 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
     --min_hist_len=2 \
     --eval_start_epoch=20 \
     --lr=0.01 \
-    --label_smoothing=0.05 \
-    --sent_emb_pca=128 \
-    --share_decoder_output_embedding=true > runs/beauty/4layer_pca128_1sequential_2e4d_256dim_diff_8_8_17.txt 2>&1 &
+    --label_smoothing=0.1 \
+    --sent_emb_model="BAAI/bge-large-en-v1.5" \
+    --sent_emb_dim=1024 \
+    --sent_emb_pca=256 \
+    --sent_emb_batch_size=256 \
+    --normalize_after_pca=true \
+    --force_regenerate_opq=true \
+    --share_decoder_output_embedding=true > runs/beauty/4layer_bgepca128_1sequential_2e4d_256dim_diff_8_8_19.txt 2>&1 &
 ```
 
 
 ### Toys and Games
 
 ```
-CUDA_VISIBLE_DEVICES=3 python main.py \
+CUDA_VISIBLE_DEVICES=0 python main.py \
     --category=Toys_and_Games \
     --train_batch_size=1024 \
     --model=DIFF_GRM \
@@ -151,10 +156,14 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
     --min_hist_len=2 \
     --eval_start_epoch=20 \
     --lr=0.003 \
-    --label_smoothing=0 \
+    --label_smoothing=0.02 \
+    --sent_emb_model="BAAI/bge-large-en-v1.5" \
+    --sent_emb_dim=1024 \
     --sent_emb_pca=256 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/toys/4layer_pca256_1sequential_2e4d_256dim_diff_8_7_22.txt 2>&1 &
+    --sent_emb_batch_size=256 \
+    --normalize_after_pca=true \
+    --force_regenerate_opq=true \
+    --share_decoder_output_embedding=true > runs/toys/4layer_bgepca256_1sequential_2e4d_256dim_diff_8_9_0.txt 2>&1 &
 ```
 
 
@@ -179,8 +188,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
     --eval_start_epoch=20 \
     --lr=0.001 \
     --sent_emb_pca=128 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/cds/4layer_pca128_1sequential_2e4d_256dim_diff_8_6_23.txt 2>&1 &
+    --share_decoder_output_embedding=true > runs/cds/4layer_pca128_1sequential_2e4d_256dim_diff_8_6_23.txt 2>&1 &
 ```
 
 
