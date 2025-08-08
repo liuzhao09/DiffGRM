@@ -90,7 +90,7 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         return int(x)
 
     def _encode_sent_emb(self, dataset: AbstractDataset, output_path: str):
-        """编码句子嵌入"""
+        """编码句子嵌入：支持任意 Hugging Face SentenceTransformer 模型 id，并做向量归一化"""
         assert self.config['metadata'] == 'sentence', \
             'DIFF_GRMTokenizer only supports sentence metadata.'
 
@@ -98,21 +98,21 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         for i in range(1, dataset.n_items):
             meta_sentences.append(dataset.item2meta[dataset.id_mapping['id2item'][i]])
 
-        if 'sentence-transformers' in self.config['sent_emb_model']:
-            sent_emb_model = SentenceTransformer(
-                self.config['sent_emb_model']
-            ).to(self.config['device'])
+        # 接受任意HF模型id（如 Alibaba-NLP/gte-large-en-v1.5 或 BAAI/bge-large-en-v1.5）
+        model_id = self.config['sent_emb_model']
+        sent_emb_model = SentenceTransformer(model_id, trust_remote_code=True).to(self.config['device'])
 
-            sent_embs = sent_emb_model.encode(
-                meta_sentences,
-                convert_to_numpy=True,
-                batch_size=self.config['sent_emb_batch_size'],
-                show_progress_bar=True,
-                device=self.config['device']
-            )
-        else:
-            raise ValueError(f"Unsupported embedding model: {self.config['sent_emb_model']}")
+        # 直接encode（GTE/BGE无需前缀），并进行L2归一化
+        sent_embs = sent_emb_model.encode(
+            meta_sentences,
+            convert_to_numpy=True,
+            batch_size=self.config['sent_emb_batch_size'],
+            show_progress_bar=True,
+            device=self.config['device'],
+            normalize_embeddings=True,
+        )
 
+        # 按模型basename分别落盘，避免不同模型冲突
         sent_embs.tofile(output_path)
         return sent_embs
 
@@ -228,33 +228,73 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
                 'data', dataset_name, 'processed'
             )
         
-        # 加载语义ID
+        # 加载语义ID（在文件名中加入 PCA 维度，避免同一模型不同PCA冲突）
         sem_ids_path = os.path.join(
             cache_dir,
-            f'{os.path.basename(self.config["sent_emb_model"])}_{self.index_factory}.sem_ids'
+            f'{os.path.basename(self.config["sent_emb_model"])}_pca{self.config["sent_emb_pca"]}_{self.index_factory}.sem_ids'
         )
 
         # 🚀 新增：检查是否需要强制重新生成OPQ量化结果
         force_regenerate_opq = self.config.get('force_regenerate_opq', False)
         
-        # 加载或编码句子嵌入
-        sent_emb_path = os.path.join(
+        # 两份嵌入文件：raw 和 pca 版本，避免命名歧义与冲突
+        model_basename = os.path.basename(self.config["sent_emb_model"]) 
+        raw_path = os.path.join(
             cache_dir,
-            f'{os.path.basename(self.config["sent_emb_model"])}.sent_emb'
+            f'{model_basename}_raw_d{self.config["sent_emb_dim"]}.sent_emb'
         )
-        if os.path.exists(sent_emb_path):
-            self.log(f'[TOKENIZER] Loading sentence embeddings from {sent_emb_path}...')
-            sent_embs = np.fromfile(sent_emb_path, dtype=np.float32).reshape(-1, self.config['sent_emb_dim'])
+        pca_path = os.path.join(
+            cache_dir,
+            f'{model_basename}_pca{self.config["sent_emb_pca"]}.sent_emb'
+        )
+
+        sent_embs = None
+        # 优先读取 PCA 后的文件（若配置开启PCA）
+        if self.config['sent_emb_pca'] > 0 and os.path.exists(pca_path):
+            self.log(f'[TOKENIZER] Loading PCA-ed sentence embeddings from {pca_path}...')
+            sent_embs = np.fromfile(pca_path, dtype=np.float32).reshape(
+                -1, self.config['sent_emb_pca']
+            )
+        elif os.path.exists(raw_path):
+            # 读取原始向量（未PCA），如需PCA则再变换并保存
+            self.log(f'[TOKENIZER] Loading RAW sentence embeddings from {raw_path}...')
+            raw_embs = np.fromfile(raw_path, dtype=np.float32).reshape(
+                -1, self.config['sent_emb_dim']
+            )
+            if self.config['sent_emb_pca'] > 0:
+                self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
+                from sklearn.decomposition import PCA
+                pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
+                training_item_mask = self._get_items_for_training(dataset)
+                pca.fit(raw_embs[training_item_mask])
+                sent_embs = pca.transform(raw_embs)
+                sent_embs = sent_embs.astype(np.float32, copy=False)
+                # 可选：PCA 后再做一次 L2 归一化，保持与内积度量的一致性
+                if self.config.get('normalize_after_pca', True):
+                    norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
+                    sent_embs = sent_embs / norms
+                # 保存PCA后的向量，加速下次启动
+                sent_embs.tofile(pca_path)
+            else:
+                sent_embs = raw_embs
         else:
+            # 都不存在：重新encode，并保存 raw；若配置PCA则同步生成并保存 pca
             self.log(f'[TOKENIZER] Encoding sentence embeddings...')
-            sent_embs = self._encode_sent_emb(dataset, sent_emb_path)
-        
-        # PCA
-        if self.config['sent_emb_pca'] > 0:
-            self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
-            from sklearn.decomposition import PCA
-            pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
-            sent_embs = pca.fit_transform(sent_embs)
+            raw_embs = self._encode_sent_emb(dataset, raw_path)
+            if self.config['sent_emb_pca'] > 0:
+                self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
+                from sklearn.decomposition import PCA
+                pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
+                training_item_mask = self._get_items_for_training(dataset)
+                pca.fit(raw_embs[training_item_mask])
+                sent_embs = pca.transform(raw_embs)
+                sent_embs = sent_embs.astype(np.float32, copy=False)
+                if self.config.get('normalize_after_pca', True):
+                    norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
+                    sent_embs = sent_embs / norms
+                sent_embs.tofile(pca_path)
+            else:
+                sent_embs = raw_embs
         self.log(f'[TOKENIZER] Sentence embeddings shape: {sent_embs.shape}')
 
         # 🚀 修改：总是重新生成OPQ量化结果（如果配置要求或文件不存在）
@@ -274,10 +314,11 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         item2sem_ids = json.load(open(sem_ids_path, 'r'))
         item2tokens = self._sem_ids_to_tokens(item2sem_ids)
 
-        # 🚀 新增：尝试加载带n_digit后缀的索引文件，避免4-digit/8-digit互相覆盖
-        suffix = f'_{self.n_digit}d'  # 例："_4d" / "_8d"
-        fwd_path = os.path.join(cache_dir, f'item_id2tokens{suffix}.npy')
-        inv_path = os.path.join(cache_dir, f'tokens2item{suffix}.pkl')
+        # 🚀 新增：映射文件也按 模型+PCA+index+n_digit 区分，完全避免冲突
+        model_basename = os.path.basename(self.config["sent_emb_model"]) 
+        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{self.index_factory}_{self.n_digit}d'
+        fwd_path = os.path.join(cache_dir, f'item_id2tokens_{map_tag}.npy')
+        inv_path = os.path.join(cache_dir, f'tokens2item_{map_tag}.pkl')
         
         # 🚀 修复①：处理映射文件的一致性
         if force_regenerate_opq:
@@ -290,7 +331,7 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         
         if fwd_exists and inv_exists:
             # ---------- ① 文件已存在 ----------
-            self.log(f'[TOKENIZER] Loading existing mappings for {self.n_digit}-digit from {fwd_path}')
+            self.log(f'[TOKENIZER] Loading existing mappings for tag: {map_tag} from {fwd_path}')
             
             # 重新构建item2tokens映射
             item_id2tokens = np.load(fwd_path)
@@ -348,8 +389,9 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         
         os.makedirs(cache_dir, exist_ok=True)
         
-        # 🚀 在文件名里加上 n_digit，避免 4-digit/8-digit 互相覆盖
-        suffix = f'_{self.n_digit}d'  # 例："_4d" / "_8d"
+        # 🚀 文件名包含：模型+PCA+index+n_digit，完全避免不同配置冲突
+        model_basename = os.path.basename(self.config["sent_emb_model"]) 
+        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{self.index_factory}_{self.n_digit}d'
         
         # 保存正排索引：item_id → SID-tokens
         item_id2tokens = np.zeros((self.dataset.n_items, self.n_digit), dtype=np.int64)
@@ -357,14 +399,14 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
             item_id = self.dataset.item2id[item]
             item_id2tokens[item_id] = np.array(tokens)
         
-        np.save(os.path.join(cache_dir, f'item_id2tokens{suffix}.npy'), item_id2tokens)
+        np.save(os.path.join(cache_dir, f'item_id2tokens_{map_tag}.npy'), item_id2tokens)
         
         # 保存倒排索引：SID-tokens → item_id
-        with open(os.path.join(cache_dir, f'tokens2item{suffix}.pkl'), 'wb') as f:
+        with open(os.path.join(cache_dir, f'tokens2item_{map_tag}.pkl'), 'wb') as f:
             pickle.dump(self.tokens2item, f)
         
-        self.log(f'[TOKENIZER] Saved {self.n_digit}-digit mappings to {cache_dir}')
-        self.log(f'[TOKENIZER] Files: item_id2tokens{suffix}.npy, tokens2item{suffix}.pkl')
+        self.log(f'[TOKENIZER] Saved mappings with tag: {map_tag} to {cache_dir}')
+        self.log(f'[TOKENIZER] Files: item_id2tokens_{map_tag}.npy, tokens2item_{map_tag}.pkl')
 
     def encode_history(self, item_seq, max_len=None):
         """编码用户历史序列"""
