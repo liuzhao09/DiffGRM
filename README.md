@@ -23,10 +23,10 @@ git clone <repository-url>
 cd DiffGM
 ```
 
-2. **Create a virtual environment (recommended):**
+2. **Create a conda environment (recommended):**
 ```bash
-python -m venv diffgm_env
-source diffgm_env/bin/activate  # On Windows: diffgm_env\Scripts\activate
+conda create -n diffgm python=3.10 -y
+conda activate diffgm
 ```
 
 3. **Install dependencies:**
@@ -161,24 +161,31 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
 
 
 
-CUDA_VISIBLE_DEVICES=2 python main.py \
-    --category=Beauty \
-    --train_batch_size=1024 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --masking_strategy=sequential \
-    --sequential_paths=1 \
-    --encoder_n_layer=2 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=256 \
-    --n_inner=1024 \
-    --train_sliding=true \
-    --eval_start_epoch=20 \
-    --lr=0.003 \
-    --sent_emb_pca=128 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/beauty/4layer_splittrain_pca128_1sequential_2e4d_256dim_diff_8_6_16.txt 2>&1 &
+CUDA_VISIBLE_DEVICES=1 python main.py \
+  --category=Sports_and_Outdoors \
+  --train_batch_size=1024 \
+  --model=DIFF_GRM \
+  --n_digit=4 \
+  --masking_strategy=sequential \
+  --sequential_paths=1 \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=4 \
+  --n_embd=256 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --eval_start_epoch=25 \
+  --lr=0.003 \
+  --label_smoothing=0.1 \
+  --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
+  --sent_emb_dim=1024 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true > runs/sports/4layer_gtepca256_seq1_2e4d_256dim_8_8_16.txt 2>&1 &
+
 
 
 CUDA_VISIBLE_DEVICES=3 python main.py \
