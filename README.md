@@ -80,88 +80,7 @@ Note that:
 
 
 ```
-CUDA_VISIBLE_DEVICES=0 nohup python main.py \
-    --category=Sports_and_Outdoors \
-    --lr=0.003 \
-    --temperature=0.03 \
-    --n_codebook=16 \
-    --num_beams=10 \
-    --n_edges=100 \
-    --propagation_steps=2 > runs/sports/7_20_13.txt 2>&1 &
-```
-
-CUDA_VISIBLE_DEVICES=0 python genrec/models/DIFF_GRM/standalone_sid_builder.py \
-  --dataset AmazonReviews2014 \
-  --category Sports_and_Outdoors \
-  --n_digit 8 \
-  --codebook_size 256 \
-  --sent_emb_model sentence-transformers/sentence-t5-base \
-  --sent_emb_dim 768 \
-  --sent_emb_pca 128 \
-  --sent_emb_batch_size 128 \
-  --faiss_omp_num_threads 32 \
-  --embed_use_gpu \
-  --force
-
-
 CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=Sports_and_Outdoors \
-    --train_batch_size=1024 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --masking_strategy=sequential \
-    --sequential_paths=1 \
-    --encoder_n_layer=2 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=256 \
-    --n_inner=1024 \
-    --train_sliding=true \
-    --min_hist_len=2 \
-    --eval_start_epoch=20 \
-    --lr=0.003 \
-    --label_smoothing=0.1 \
-    --sent_emb_pca=256 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/sports/4layer_pca256_1sequential_2e4d_256dim_diff_8_7_12.txt 2>&1 &
-    
-
-CUDA_VISIBLE_DEVICES=0 python genrec/models/DIFF_GRM/infer.py \
-    --checkpoint saved/AmazonReviews2014_Aug-04-2025_16-50/pytorch_model.bin \
-    --category Sports_and_Outdoors \
-    --top_k 10 \
-    --beam_act 128 \
-    --beam_max 128 \
-    --dedup_strategy simple \
-    --batch_size 32 \
-    --n_digit=4 \
-    --encoder_n_layer=4 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=512 \
-    --n_inner=1024 \
-    --print_duplicates \
-    --share_embeddings=true \
-    --debug > runs/sports/infer_simple_8times_beam128_8_5_7.txt 2>&1 &
-
-
-
-### Beauty
-
-```
-CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=Beauty \
-    --lr=0.01 \
-    --temperature=0.03 \
-    --n_codebook=32 \
-    --num_beams=10 \
-    --n_edges=100 \
-    --propagation_steps=3
-```
-
-
-
-CUDA_VISIBLE_DEVICES=1 python main.py \
   --category=Sports_and_Outdoors \
   --train_batch_size=1024 \
   --model=DIFF_GRM \
@@ -178,16 +97,19 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
   --eval_start_epoch=25 \
   --lr=0.003 \
   --label_smoothing=0.1 \
-  --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
+  --sent_emb_model="BAAI/bge-large-en-v1.5" \
   --sent_emb_dim=1024 \
   --sent_emb_pca=256 \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/4layer_gtepca256_seq1_2e4d_256dim_8_8_16.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_seq1_2e4d_256dim_8_8_16.txt 2>&1 &
+```
 
 
+### Beauty
 
+```
 CUDA_VISIBLE_DEVICES=3 python main.py \
     --category=Beauty \
     --train_batch_size=1024 \
@@ -204,66 +126,22 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
     --min_hist_len=2 \
     --eval_start_epoch=20 \
     --lr=0.01 \
-    --label_smoothing=0.1 \
+    --label_smoothing=0.05 \
     --sent_emb_pca=128 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/beauty/4layer_pca128_1sequential_2e4d_256dim_diff_8_8_15.txt 2>&1 &
+    --share_decoder_output_embedding=true > runs/beauty/4layer_pca128_1sequential_2e4d_256dim_diff_8_8_17.txt 2>&1 &
+```
 
-
-CUDA_VISIBLE_DEVICES=0 python genrec/models/DIFF_GRM/infer.py \
-    --checkpoint saved/AmazonReviews2014_Aug-05-2025_07-53/pytorch_model.bin \
-    --category Beauty \
-    --top_k 10 \
-    --beam_act 128 \
-    --beam_max 128 \
-    --dedup_strategy simple \
-    --batch_size 32 \
-    --n_digit=4 \
-    --encoder_n_layer=4 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=512 \
-    --n_inner=1024 \
-    --print_duplicates \
-    --debug > runs/beauty/infer_simple_4times_rand_beam128_8_5_10.txt 2>&1 &
 
 ### Toys and Games
 
 ```
-CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=Toys_and_Games \
-    --lr=0.003 \
-    --temperature=0.03 \
-    --n_codebook=16 \
-    --num_beams=10 \
-    --n_edges=50 \
-    --propagation_steps=5
-```
-
-
-CUDA_VISIBLE_DEVICES=2 python main.py \
-    --category=Toys_and_Games \
-    --train_batch_size=1024 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --mask_probs="0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0" \
-    --encoder_n_layer=4 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=512 \
-    --n_inner=1024 \
-    --eval_start_epoch=10 \
-    --lr=0.003 \
-    --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/toys/4layer_10times_4e4d_512dim_diff_8_5_14.txt 2>&1 &
-
 CUDA_VISIBLE_DEVICES=3 python main.py \
     --category=Toys_and_Games \
     --train_batch_size=1024 \
     --model=DIFF_GRM \
     --n_digit=4 \
-    --masking_strategy=random \
-    --mask_probs="0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0" \
+    --masking_strategy=sequential \
+    --sequential_paths=1 \
     --encoder_n_layer=2 \
     --decoder_n_layer=4 \
     --n_head=4 \
@@ -273,39 +151,17 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
     --min_hist_len=2 \
     --eval_start_epoch=20 \
     --lr=0.003 \
-    --label_smoothing=0.1 \
-    --sent_emb_pca=128 \
+    --label_smoothing=0 \
+    --sent_emb_pca=256 \
     --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/toys/4layer_pca128_10rand_2e4d_256dim_diff_8_8_11.txt 2>&1 &
-    
+    --temperature=0.03 > runs/toys/4layer_pca256_1sequential_2e4d_256dim_diff_8_7_22.txt 2>&1 &
+```
+
+
 
 ### CDs and Vinyl
 
 ```
-CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=CDs_and_Vinyl \
-    --lr=0.001 \
-    --temperature=0.03 \
-    --n_codebook=64 \
-    --num_beams=10 \
-    --n_edges=500 \
-    --propagation_steps=3
-```
-
-CUDA_VISIBLE_DEVICES=2 python main.py \
-    --category=CDs_and_Vinyl \
-    --train_batch_size=256 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --mask_probs="1.0,0.75,0.5,0.25" \
-    --encoder_n_layer=2 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=512 \
-    --n_inner=1024 \
-    --lr=0.001 \
-    --temperature=0.03 > runs/cds/4layer_2e4d_512dim_diff_8_3_15.txt 2>&1 &
-
 CUDA_VISIBLE_DEVICES=2 python main.py \
     --category=CDs_and_Vinyl \
     --train_batch_size=1024 \
@@ -325,15 +181,11 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
     --sent_emb_pca=128 \
     --share_decoder_output_embedding=true \
     --temperature=0.03 > runs/cds/4layer_pca128_1sequential_2e4d_256dim_diff_8_6_23.txt 2>&1 &
+```
 
-CUDA_VISIBLE_DEVICES=3 python genrec/models/DIFF_GRM/infer.py \
-    --checkpoint saved/AmazonReviews2014_Aug-03-2025_15-05/pytorch_model.bin \
-    --category CDs_and_Vinyl \
-    --top_k 10 \
-    --beam_act 512 \
-    --beam_max 512 \
-    --batch_size 16 \
-    --print_duplicates \
-    --debug > runs/cds/infer_4layer_2e4d_512dim_diff_8_4_11.txt 2>&1 &
+
+
+
+
 
 
