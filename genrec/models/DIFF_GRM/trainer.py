@@ -29,8 +29,8 @@ class DIFF_GRMTrainer:
         self.model = model
         self.tokenizer = tokenizer
         
-        # 初始化accelerator
-        self.accelerator = Accelerator()
+        # Use the same Accelerator created by Pipeline so logging / is_main_process stay consistent
+        self.accelerator = config.get('accelerator', None) or Accelerator()
         
         # 设置保存路径
         self.saved_model_ckpt = os.path.join(

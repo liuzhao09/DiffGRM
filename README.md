@@ -181,7 +181,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
     --temperature=0.03 > runs/beauty/4layer_splittrain_pca128_1sequential_2e4d_256dim_diff_8_6_16.txt 2>&1 &
 
 
-CUDA_VISIBLE_DEVICES=1 python main.py \
+CUDA_VISIBLE_DEVICES=3 python main.py \
     --category=Beauty \
     --train_batch_size=1024 \
     --model=DIFF_GRM \
@@ -195,12 +195,12 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
     --n_inner=1024 \
     --train_sliding=true \
     --min_hist_len=2 \
-    --eval_start_epoch=25 \
-    --lr=0.003 \
+    --eval_start_epoch=20 \
+    --lr=0.01 \
     --label_smoothing=0.1 \
-    --sent_emb_pca=256 \
+    --sent_emb_pca=128 \
     --share_decoder_output_embedding=true \
-    --temperature=0.03 > runs/beauty/4layer_pca256_1sequential_2e4d_256dim_diff_8_7_15.txt 2>&1 &
+    --temperature=0.03 > runs/beauty/4layer_pca128_1sequential_2e4d_256dim_diff_8_8_15.txt 2>&1 &
 
 
 CUDA_VISIBLE_DEVICES=0 python genrec/models/DIFF_GRM/infer.py \

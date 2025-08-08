@@ -188,6 +188,10 @@ class DIFF_GRMEvaluator:
         # 收集统计信息用于计算平均值
         self.batch_legal_ratios.append(current_legal_ratio)
         self.batch_duplicate_ratios.append(current_duplicate_ratio)
+
+        # ✅ 新增：把 batch 级合法率/重复率作为“指标”回传（Trainer 会自动求均值并写入 TB）
+        results[f'legal_ratio{suffix}'] = torch.tensor([current_legal_ratio], dtype=torch.float32)
+        results[f'duplicate_ratio{suffix}'] = torch.tensor([current_duplicate_ratio], dtype=torch.float32)
         
         # ---------- 计算"用户内部"Top-10 重复率 ----------
         dup10 = self._dup_ratio_per_user(preds, k=10)     # [B]
