@@ -23,7 +23,7 @@ python tools/analyze_dataset.py \
 # 分析指定category的数据
 python tools/analyze_dataset.py \
     --config genrec/models/DIFF_GRM/config.yaml \
-    --category Sports_and_Outdoors
+    --category Toys_and_Games
 
 # 保存结果到JSON文件
 python tools/analyze_dataset.py \
