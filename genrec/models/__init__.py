@@ -6,12 +6,6 @@
 
 # 使用try-except来处理可能缺失的模块
 try:
-    from genrec.models.RPG_ED.model import RPG_ED
-except ImportError:
-    RPG_ED = None
-    print("Warning: RPG_ED model not found, skipping import")
-
-try:
     from genrec.models.DIFF_GRM.model import DIFF_GRM
 except ImportError:
     DIFF_GRM = None
@@ -19,9 +13,6 @@ except ImportError:
 
 
 # 只导出存在的模型
-__all__ = []
-if RPG_ED is not None:
-    __all__.append('RPG_ED')
 if DIFF_GRM is not None:
     __all__.append('DIFF_GRM')
 

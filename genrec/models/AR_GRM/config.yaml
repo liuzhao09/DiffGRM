@@ -1,0 +1,106 @@
+# DIFF_GRM Model Configuration
+model: DIFF_GRM
+
+# SID Configuration
+n_digit: 4
+codebook_size: 256
+share_embeddings: true
+
+# Model Architecture
+encoder_n_layer: 2
+decoder_n_layer: 2
+n_head: 4
+n_embd: 256
+n_inner: 512
+dropout: 0.1
+embd_pdrop: 0.1
+attn_pdrop: 0.1
+resid_pdrop: 0.1
+
+# Output Layer Configuration
+share_decoder_output_embedding: true   # 使用共享embedding dot-product，false时回退到独立Linear
+
+# ─── 新增：要在验证/测试阶段跑的 beam 模式 ─────────────────────
+beam_search_modes: ["confidence", "random"]   # 顺序决定日志展示顺序
+# 如果只想偶尔跑 random，把它删掉即可
+
+# ─── 新增：random-beam 的采样超参（示例） ────────────────────
+random_beam:
+  beam_act: 64        # 👈 你要的 "random_beam_size"
+  beam_max: 64
+  seed: 42            # 保留，用来固定随机列顺序
+
+# Generation - 向量化Beam Search配置（统一管理）
+vectorized_beam_search:
+  # === 通用配置 ===
+  top_k_final: 10                  # 最终返回的序列数量
+  neg_inf_fp32: -1000000000.0      # FP32负无穷值 (-1e9)
+  neg_inf_fp16: -65504.0           # FP16负无穷值
+  dedup_strategy: simple            # 去重策略：simple | weighted | none
+
+  # === split-specific配置 ===
+  # 验证时使用较小的beam size，保证速度
+  val:     {beam_act: 32,  beam_max: 32}
+  # 测试时使用较大的beam size，保证精度
+  test:    {beam_act: 256, beam_max: 256}
+  
+  # ↓可留可删，纯兼容旧代码
+  beam_act: 32
+  beam_max: 32
+
+# 兼容性参数（保留用于旧代码）
+beam_size: 10
+max_generation_len: 4
+
+# Diffusion Configuration
+# === Mask-Augment 相关 ===
+masking_strategy: random      # random | sequential
+sequential_steps: auto        # auto(=n_digit) 或 1~n_digit 的整数（建议≤n_digit-1以跳过全揭开视图）
+sequential_paths: 1           # 新增——同一个样本并行多少条随机路径（仅sequential模式有效）
+# 新方式：多概率掩码配置（优先级更高）
+mask_probs: "1.0,0.75,0.5,0.25"    # 4种不同的掩码概率，对应4个视图
+# 旧方式：单一掩码配置（作为备选）
+mask_prob: 0.5                     # 训练时的掩码概率（仅在未设置mask_probs时使用）也可改为随机0-1
+augment_factor: 4                   # 数据增强倍数（仅在未设置mask_probs时使用）
+max_history_len: 50                 # 历史序列最大长度
+
+# Data Split Configuration
+split: leave_one_out          # 数据划分策略：leave_one_out | last_out
+train_sliding: false          # 是否对train做滑窗扩充（true=滑窗，false=经典leave-one-out）
+min_hist_len: 2               # 滑窗最短history长度（含label前的序列长度）
+max_hist_len: 50              # 滑窗最长history长度（与max_history_len对齐）
+
+# Sentence Embedding (for SID generation)
+metadata: sentence
+sent_emb_model: sentence-transformers/sentence-t5-base
+sent_emb_dim: 768
+sent_emb_pca: 256
+normalize_after_pca: true
+sent_emb_batch_size: 512
+
+# OPQ Configuration
+opq_use_gpu: False
+opq_gpu_id: 0
+faiss_omp_num_threads: 32
+force_regenerate_opq: true  # 是否强制重新生成OPQ量化结果（即使已存在）
+disable_opq: false  # 是否禁用OPQ，使用纯PQ量化
+
+# Training
+temperature: 0.07
+train_batch_size: 256
+eval_batch_size: 32
+lr: 0.0003
+weight_decay: 0.0
+warmup_steps: 10000
+epochs: 100
+max_grad_norm: 1.0
+label_smoothing: 0.1
+
+
+# Evaluation
+eval_interval: 2  # 每xx轮评估一次，而不是每轮都评估
+eval_start_epoch: 20  # 从第xx个epoch开始评估
+patience: 5       # xx次评估无提升就早停
+topk: [5,10]
+metrics: [ndcg,recall]
+val_metric: weighted_score  # 使用加权综合指标：weighted_score = 0.8 * ndcg_10 + 0.2 * recall_10
