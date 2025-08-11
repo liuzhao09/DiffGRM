@@ -17,7 +17,7 @@ from genrec.dataset import AbstractDataset
 from genrec.tokenizer import AbstractTokenizer
 
 
-class DIFF_GRMTokenizer(AbstractTokenizer):
+class AR_GRMTokenizer(AbstractTokenizer):
     """
     DIFF_GRM Tokenizer for Diffusion-based Generative Recommendation Model
     
@@ -39,7 +39,7 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
             self.index_factory = f'IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
 
         # 先初始化父类，保证 self.config / self.logger 等字段可用
-        super(DIFF_GRMTokenizer, self).__init__(config, dataset)
+        super(AR_GRMTokenizer, self).__init__(config, dataset)
         
         # 现在再写日志
         self.log(f'[TOKENIZER] Index factory: {self.index_factory}')
@@ -61,7 +61,8 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
             self.tokens2item = self._create_reverse_mapping()
         
         # Set collate functions
-        from genrec.models.DIFF_GRM.collate import collate_fn_train, collate_fn_val, collate_fn_test
+        # 直接使用本目录下 collate
+        from .collate import collate_fn_train, collate_fn_val, collate_fn_test
         self.collate_fn = {
             'train': collate_fn_train,
             'val': collate_fn_val,

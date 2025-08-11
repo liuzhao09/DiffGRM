@@ -19,7 +19,7 @@ from genrec.model import AbstractModel
 from genrec.tokenizer import AbstractTokenizer
 
 
-class DIFF_GRMTrainer:
+class AR_GRMTrainer:
     """
     DIFF_GRM模型的训练器，支持diffusion训练模式
     """
@@ -39,13 +39,7 @@ class DIFF_GRMTrainer:
         os.makedirs(os.path.dirname(self.saved_model_ckpt), exist_ok=True)
 
     def fit(self, train_dataloader, val_dataloader):
-        """
-        训练模型 - 适配diffusion模式
-        
-        Args:
-            train_dataloader: 训练数据加载器
-            val_dataloader: 验证数据加载器
-        """
+        """标准训练流程（自回归损失在 model.forward 内实现）"""
         optimizer = AdamW(
             self.model.parameters(),
             lr=self.config['lr'],
@@ -100,7 +94,6 @@ class DIFF_GRMTrainer:
             for batch in train_progress_bar:
                 optimizer.zero_grad()
                 
-                # Diffusion训练：直接传入包含掩码信息的batch
                 outputs = self.model(batch, return_loss=True)
                 loss = outputs.loss
                 
@@ -141,7 +134,7 @@ class DIFF_GRMTrainer:
                     best_epoch = epoch + 1
                     no_improve_count = 0  # 重置无提升计数
                     if self.accelerator.is_main_process:
-                        if self.config['use_ddp']: # unwrap model for saving
+                        if self.config.get('use_ddp', False): # unwrap model for saving
                             unwrapped_model = self.accelerator.unwrap_model(self.model)
                             torch.save(unwrapped_model.state_dict(), self.saved_model_ckpt)
                         else:
@@ -170,21 +163,9 @@ class DIFF_GRMTrainer:
         return best_epoch, best_val_score
 
     def evaluate(self, dataloader, split='test'):
-        """
-        评估模型 - 适配diffusion模式，支持多种beam search模式
-        
-        Args:
-            dataloader: 数据加载器
-            split: 数据集分割名称
-            
-        Returns:
-            OrderedDict: 评估结果字典
-        """
+        """评估模型：顺序自回归 beam search，返回指标字典"""
         self.model.eval()
 
-        # 获取要评估的beam search模式
-        modes = self.config.get("beam_search_modes", ["confidence"])
-        
         all_results = defaultdict(list)
         val_progress_bar = tqdm(
             dataloader,
@@ -192,30 +173,19 @@ class DIFF_GRMTrainer:
             desc=f"Eval - {split}",
         )
         
-        # 导入evaluator
-        from .evaluator import DIFF_GRMEvaluator
-        evaluator = DIFF_GRMEvaluator(self.config, self.tokenizer)
+        from .evaluator import AR_GRMEvaluator
+        evaluator = AR_GRMEvaluator(self.config, self.tokenizer)
         
         for batch in val_progress_bar:
             with torch.no_grad():
-                # 🚀 设置当前split，用于beam search配置选择
-                self.config["current_split"] = split  # split == "val" / "test"
-                
-                # 对每个mode进行生成和评估
-                for mode in modes:
-                    # 生成序列
-                    maxk = max(self.config['topk'])
-                    preds = self.model.generate(batch, n_return_sequences=maxk, mode=mode)  # [B, maxk, n_digit]
-                    
-                    # 获取真实标签
-                    labels = batch['labels']  # [B, n_digit]
-                    
-                    # 计算指标
-                    batch_results = evaluator.calculate_metrics(preds, labels, suffix=("" if mode=="confidence" else f"_{mode}"))
-                    
-                    # 累积结果
-                    for key, values in batch_results.items():
-                        all_results[key].extend(values.tolist())
+                # 当前 split 信息（如需）
+                self.config["current_split"] = split
+                maxk = max(self.config['topk'])
+                preds = self.model.generate(batch, n_return_sequences=maxk)  # [B, maxk, n_digit]
+                labels = batch['labels']  # [B, n_digit]
+                batch_results = evaluator.calculate_metrics(preds, labels)
+                for key, values in batch_results.items():
+                    all_results[key].extend(values.tolist())
 
         # 计算平均指标
         final_results = OrderedDict()

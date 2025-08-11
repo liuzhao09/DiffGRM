@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 
-class DIFF_GRMEvaluator:
+class AR_GRMEvaluator:
     """
     DIFF_GRM模型的评估器
     """
@@ -34,7 +34,7 @@ class DIFF_GRMEvaluator:
         self.batch_dup10_ratios = []  # 新增：用户内部top-10重复率
         
         # 调试信息：确认使用了DIFF_GRMEvaluator
-        print(f'>> Using evaluator = {self.__class__.__name__} (fixed duplicate scoring bug)')
+        print(f'>> Using evaluator = {self.__class__.__name__} (AR beam)')
         print(f'>> Recall: uses any() to avoid duplicate scoring')
         print(f'>> NDCG: uses first-hit-only to avoid duplicate DCG accumulation')
         print(f'>> Fixed: index bounds checking to prevent out-of-bounds errors')
