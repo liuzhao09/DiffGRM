@@ -109,7 +109,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
 AR_GRM（自回归对照实验）
 
 ```
-CUDA_VISIBLE_DEVICES=1 python main.py \
+CUDA_VISIBLE_DEVICES=0 python main.py \
   --category=Sports_and_Outdoors \
   --train_batch_size=1024 \
   --model=AR_GRM \
@@ -131,7 +131,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/ar_rq4layer_pca256_2e4d_256dim_8_11_14.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/sports/ar_rq4layer_pca256_2e4d_256dim_8_11_15.txt 2>&1 &
 ```
 
 
