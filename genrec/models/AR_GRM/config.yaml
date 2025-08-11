@@ -49,10 +49,20 @@ normalize_after_pca: true
 sent_emb_batch_size: 256
 
 # OPQ Configuration
+# 量化器类型：pq（默认，保持与当前一致）或 rq（残差量化）
+quantizer: pq
+
+# PQ/OPQ 相关
+disable_opq: false
 opq_use_gpu: false
 faiss_omp_num_threads: 32
+# 通用的强制重算开关（兼容旧键 force_regenerate_opq）
+force_regenerate_codes: true
 force_regenerate_opq: true
-disable_opq: false
+
+# RQ 相关（预留，可扩展）
+rq:
+  use_opq: false
 
 # Training
 train_batch_size: 1024

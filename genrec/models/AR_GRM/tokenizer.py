@@ -30,13 +30,17 @@ class AR_GRMTokenizer(AbstractTokenizer):
     """
     def __init__(self, config: dict, dataset: AbstractDataset):
         self.n_codebook_bits = self._get_codebook_bits(config['codebook_size'])
-        
-        # 🚀 修复②：支持 disable_opq 配置
-        use_opq = not config.get('disable_opq', False)
-        if use_opq:
-            self.index_factory = f'OPQ{config["n_digit"]},IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
+        self.quantizer = config.get('quantizer', 'pq').lower()
+
+        # PQ 默认沿用现有逻辑；RQ 使用 ResidualQuantizer，index_factory 仅作为命名标签
+        if self.quantizer == 'pq':
+            use_opq = not config.get('disable_opq', False)
+            if use_opq:
+                self.index_factory = f'OPQ{config["n_digit"]},IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
+            else:
+                self.index_factory = f'IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
         else:
-            self.index_factory = f'IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
+            self.index_factory = f'RQ{config["n_digit"]}x{self.n_codebook_bits}'
 
         # 先初始化父类，保证 self.config / self.logger 等字段可用
         super(AR_GRMTokenizer, self).__init__(config, dataset)
@@ -203,6 +207,37 @@ class AR_GRMTokenizer(AbstractTokenizer):
         with open(sem_ids_path, 'w') as f:
             json.dump(item2sem_ids, f)
 
+    def _generate_semantic_id_rq(self, sent_embs, sem_ids_path, train_mask):
+        """使用 ResidualQuantizer 生成语义ID（残差量化），输出与 OPQ/PQ 路径一致的 code 序列"""
+        import faiss
+        self.log(f'[TOKENIZER][RQ] Training residual quantizer...')
+        faiss.omp_set_num_threads(self.config['faiss_omp_num_threads'])
+
+        d = sent_embs.shape[1]
+        M = self.config['n_digit']
+        nbits = self.n_codebook_bits
+
+        rq = faiss.ResidualQuantizer(d, M, nbits)
+        rq.train(sent_embs[train_mask])
+
+        # 编码
+        try:
+            codes = rq.compute_codes(sent_embs)
+        except AttributeError:
+            codes = np.empty((sent_embs.shape[0], M), dtype='uint8')
+            rq.encode(sent_embs, codes)
+        if codes.ndim == 1:
+            codes = codes.reshape(-1, M)
+
+        # 保存为与 OPQ 路径一致的 JSON
+        item2sem_ids = {}
+        for i in range(codes.shape[0]):
+            item = self.id2item[i + 1]
+            item2sem_ids[item] = tuple(int(c) for c in codes[i])
+        self.log(f'[TOKENIZER][RQ] Saving semantic IDs to {sem_ids_path}...')
+        with open(sem_ids_path, 'w') as f:
+            json.dump(item2sem_ids, f)
+
     def _sem_ids_to_tokens(self, item2sem_ids: dict) -> dict:
         """将语义ID转换为token"""
         for item in item2sem_ids:
@@ -235,8 +270,8 @@ class AR_GRMTokenizer(AbstractTokenizer):
             f'{os.path.basename(self.config["sent_emb_model"])}_pca{self.config["sent_emb_pca"]}_{self.index_factory}.sem_ids'
         )
 
-        # 🚀 新增：检查是否需要强制重新生成OPQ量化结果
-        force_regenerate_opq = self.config.get('force_regenerate_opq', False)
+        # 🚀 新增：检查是否需要强制重新生成量化结果（兼容旧键）
+        force_regenerate_codes = self.config.get('force_regenerate_codes', False) or self.config.get('force_regenerate_opq', False)
         
         # 两份嵌入文件：raw 和 pca 版本，避免命名歧义与冲突
         model_basename = os.path.basename(self.config["sent_emb_model"]) 
@@ -299,17 +334,20 @@ class AR_GRMTokenizer(AbstractTokenizer):
         self.log(f'[TOKENIZER] Sentence embeddings shape: {sent_embs.shape}')
 
         # 🚀 修改：总是重新生成OPQ量化结果（如果配置要求或文件不存在）
-        if force_regenerate_opq or not os.path.exists(sem_ids_path):
-            if force_regenerate_opq:
-                self.log(f'[TOKENIZER] Force regenerating OPQ quantization results...')
+        if force_regenerate_codes or not os.path.exists(sem_ids_path):
+            if force_regenerate_codes:
+                self.log(f'[TOKENIZER] Force regenerating quantization results...')
             else:
-                self.log(f'[TOKENIZER] OPQ quantization results not found, generating...')
-            
-            # 生成语义ID
+                self.log(f'[TOKENIZER] Quantization results not found, generating...')
+
+            # 生成语义ID（按 quantizer 分派）
             training_item_mask = self._get_items_for_training(dataset)
-            self._generate_semantic_id_opq(sent_embs, sem_ids_path, training_item_mask)
+            if self.quantizer == 'pq':
+                self._generate_semantic_id_opq(sent_embs, sem_ids_path, training_item_mask)
+            else:
+                self._generate_semantic_id_rq(sent_embs, sem_ids_path, training_item_mask)
         else:
-            self.log(f'[TOKENIZER] Using existing OPQ quantization results from {sem_ids_path}')
+            self.log(f'[TOKENIZER] Using existing quantization results from {sem_ids_path}')
 
         self.log(f'[TOKENIZER] Loading semantic IDs from {sem_ids_path}...')
         item2sem_ids = json.load(open(sem_ids_path, 'r'))
@@ -321,11 +359,11 @@ class AR_GRMTokenizer(AbstractTokenizer):
         fwd_path = os.path.join(cache_dir, f'item_id2tokens_{map_tag}.npy')
         inv_path = os.path.join(cache_dir, f'tokens2item_{map_tag}.pkl')
         
-        # 🚀 修复①：处理映射文件的一致性
-        if force_regenerate_opq:
+        # 🚀 修复①：处理映射文件的一致性（统一使用 force_regenerate_codes 开关）
+        if force_regenerate_codes:
             # 强制重新生成时，直接忽略旧文件，让下面逻辑走"重新保存"
             fwd_exists = inv_exists = False
-            self.log(f'[TOKENIZER] Force regenerate OPQ enabled, ignoring existing mapping files')
+            self.log(f'[TOKENIZER] Force regenerate enabled, ignoring existing mapping files')
         else:
             fwd_exists = os.path.exists(fwd_path)
             inv_exists = os.path.exists(inv_path)
@@ -349,8 +387,8 @@ class AR_GRMTokenizer(AbstractTokenizer):
             self.log(f'[TOKENIZER] Successfully loaded {len(item2tokens)} item mappings')
         else:
             # ---------- ② 文件不存在或强制重新生成，需要重新生成 ----------
-            if force_regenerate_opq:
-                self.log(f'[TOKENIZER] Force regenerate OPQ enabled, generating new mappings')
+            if force_regenerate_codes:
+                self.log(f'[TOKENIZER] Force regenerate enabled, generating new mappings')
             else:
                 self.log(f'[TOKENIZER] No existing mappings found for {self.n_digit}-digit, will generate new ones')
             
