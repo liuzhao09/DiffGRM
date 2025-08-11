@@ -106,6 +106,33 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_seq1_2e4d_256dim_8_8_16.txt 2>&1 &
 ```
 
+AR_GRM（自回归对照实验）
+
+```
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --category=Sports_and_Outdoors \
+  --train_batch_size=1024 \
+  --model=AR_GRM \
+  --n_digit=4 \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=8 \
+  --n_embd=256 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --eval_start_epoch=25 \
+  --lr=0.003 \
+  --label_smoothing=0.1 \
+  --sent_emb_model="BAAI/bge-large-en-v1.5" \
+  --sent_emb_dim=1024 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true > runs/sports/ar_grm_4layer_bgepca256_2e4d_256dim.txt 2>&1 &
+```
+
 
 ### Beauty
 
@@ -134,6 +161,33 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
     --normalize_after_pca=true \
     --force_regenerate_opq=true \
     --share_decoder_output_embedding=true > runs/beauty/4layer_bgepca128_1sequential_2e4d_256dim_diff_8_8_19.txt 2>&1 &
+```
+
+AR_GRM（自回归对照实验）
+
+```
+CUDA_VISIBLE_DEVICES=3 python main.py \
+    --category=Beauty \
+    --train_batch_size=1024 \
+    --model=AR_GRM \
+    --n_digit=4 \
+    --encoder_n_layer=2 \
+    --decoder_n_layer=4 \
+    --n_head=8 \
+    --n_embd=256 \
+    --n_inner=1024 \
+    --train_sliding=true \
+    --min_hist_len=2 \
+    --eval_start_epoch=20 \
+    --lr=0.01 \
+    --label_smoothing=0.1 \
+    --sent_emb_model="BAAI/bge-large-en-v1.5" \
+    --sent_emb_dim=1024 \
+    --sent_emb_pca=256 \
+    --sent_emb_batch_size=256 \
+    --normalize_after_pca=true \
+    --force_regenerate_opq=true \
+    --share_decoder_output_embedding=true > runs/beauty/ar_grm_4layer_bgepca256_2e4d_256dim.txt 2>&1 &
 ```
 
 
@@ -166,6 +220,33 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
     --share_decoder_output_embedding=true > runs/toys/4layer_pca256_1sequential_2e4d_128dim_diff_8_11_10.txt 2>&1 &
 ```
 
+AR_GRM（自回归对照实验）
+
+```
+CUDA_VISIBLE_DEVICES=2 python main.py \
+    --category=Toys_and_Games \
+    --train_batch_size=1024 \
+    --model=AR_GRM \
+    --n_digit=4 \
+    --encoder_n_layer=2 \
+    --decoder_n_layer=4 \
+    --n_head=8 \
+    --n_embd=128 \
+    --n_inner=1024 \
+    --train_sliding=true \
+    --min_hist_len=2 \
+    --eval_start_epoch=20 \
+    --lr=0.003 \
+    --label_smoothing=0.05 \
+    --sent_emb_model="sentence-transformers/sentence-t5-base" \
+    --sent_emb_dim=768 \
+    --sent_emb_pca=256 \
+    --sent_emb_batch_size=512 \
+    --normalize_after_pca=true \
+    --force_regenerate_opq=true \
+    --share_decoder_output_embedding=true > runs/toys/ar_grm_4layer_pca256_2e4d_128dim.txt 2>&1 &
+```
+
 
 
 ### CDs and Vinyl
@@ -195,6 +276,33 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --normalize_after_pca=true \
     --force_regenerate_opq=true \
     --share_decoder_output_embedding=true > runs/cds/4layer_bgepca256_1sequential_2e4d_256dim_diff_8_9_1.txt 2>&1 &
+```
+
+AR_GRM（自回归对照实验）
+
+```
+CUDA_VISIBLE_DEVICES=0 python main.py \
+    --category=CDs_and_Vinyl \
+    --train_batch_size=1024 \
+    --model=AR_GRM \
+    --n_digit=4 \
+    --encoder_n_layer=2 \
+    --decoder_n_layer=4 \
+    --n_head=8 \
+    --n_embd=256 \
+    --n_inner=1024 \
+    --train_sliding=true \
+    --min_hist_len=2 \
+    --eval_start_epoch=30 \
+    --lr=0.001 \
+    --label_smoothing=0.1 \
+    --sent_emb_model="BAAI/bge-large-en-v1.5" \
+    --sent_emb_dim=1024 \
+    --sent_emb_pca=256 \
+    --sent_emb_batch_size=256 \
+    --normalize_after_pca=true \
+    --force_regenerate_opq=true \
+    --share_decoder_output_embedding=true > runs/cds/ar_grm_4layer_bgepca256_2e4d_256dim.txt 2>&1 &
 ```
 
 
