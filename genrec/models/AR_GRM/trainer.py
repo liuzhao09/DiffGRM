@@ -21,7 +21,7 @@ from genrec.tokenizer import AbstractTokenizer
 
 class AR_GRMTrainer:
     """
-    DIFF_GRM模型的训练器，支持diffusion训练模式
+    AR_GRM 模型训练器：标准 next-token 自回归训练与顺序 beam-search 验证
     """
 
     def __init__(self, config: dict, model: AbstractModel, tokenizer: AbstractTokenizer):

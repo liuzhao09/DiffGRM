@@ -482,7 +482,7 @@ class AR_GRM(AbstractModel):
                 logp0 = F.log_softmax(logits0, dim=-1)
 
                 topk_p0, topk_i0 = torch.topk(logp0, k=pre_cut[0], dim=-1)
-                keep_k = beam_num[0]
+                keep_k = min(beam_num[0], pre_cut[0])  # 防止步0的keep超过pre_cut
                 best_lp, best_idx = torch.topk(topk_p0, k=keep_k, dim=-1)
                 tok0 = topk_i0.gather(1, best_idx)
 
@@ -514,7 +514,9 @@ class AR_GRM(AbstractModel):
                     logit = self._compute_digit_logits(x[:, 0, :], digit=d)
                     logp = F.log_softmax(logit, dim=-1)
 
-                    pre = pre_cut[d]; keep = beam_num[d]
+                    pre = pre_cut[d]
+                    # 防止 keep 超过候选的上限（父数 * pre）
+                    keep = min(beam_num[d], (beams.size(0) // B) * pre)
                     tk_prob, tk_idx = torch.topk(logp, k=pre, dim=-1)  # [N,pre]
                     cand_lp = (lp.unsqueeze(1) + tk_prob).view(B, -1)
                     best_lp, best_flat = torch.topk(cand_lp, k=keep, dim=-1)
@@ -541,26 +543,13 @@ class AR_GRM(AbstractModel):
                     beam_self_kv = new_self_kv
                     last_emb = emb_of_digit_token(d, beams[:, -1])
 
-                beams = beams.view(B, -1, self.n_digit)
-                lp = lp.view(B, -1)
-                top_lp, top_i = torch.topk(lp, k=min(TOPK, lp.size(1)), dim=-1)
-                final = []
-                for b in range(B):
-                    uniq = []
-                    used = set()
-                    for j in top_i[b].tolist():
-                        seq = tuple(beams[b, j].tolist())
-                        if self.tokenizer.codebooks_to_item_id(list(seq)) is not None and seq not in used:
-                            uniq.append(torch.tensor(seq, device=device))
-                            used.add(seq)
-                        if len(uniq) >= TOPK:
-                            break
-                    if len(uniq) == 0:
-                        uniq.append(beams[b, top_i[b,0]].to(device))
-                    while len(uniq) < TOPK:
-                        uniq.append(uniq[-1])
-                    final.append(torch.stack(uniq))
-                return torch.stack(final)
+                beams = beams.view(B, -1, self.n_digit)   # [B, num_beams, n_digit]
+                lp = lp.view(B, -1)                       # [B, num_beams]
+                K = min(TOPK, lp.size(1))
+                _, top_i = torch.topk(lp, k=K, dim=-1)    # [B, K]
+                idx = top_i.unsqueeze(-1).expand(-1, -1, self.n_digit)  # [B,K,n_digit]
+                final = beams.gather(1, idx)              # [B, K, n_digit]
+                return final
         finally:
             if was_training:
                 self.train()

@@ -10,7 +10,7 @@ import numpy as np
 
 class AR_GRMEvaluator:
     """
-    DIFF_GRM模型的评估器
+    AR_GRM 模型的评估器（顺序自回归 beam-search 输出）
     """
     def __init__(self, config, tokenizer):
         self.config = config
@@ -23,22 +23,13 @@ class AR_GRMEvaluator:
         self.pad_token = self.tokenizer.pad_token
         self.maxk = max(config['topk'])
         
-        # 🚀 新增：总体统计累加器
-        self.total_seqs = 0
-        self.total_legals = 0
-        self.total_unique = 0
-        
-        # 🚀 新增：SID组合统计累加器（用于计算平均值）
-        self.batch_legal_ratios = []
-        self.batch_duplicate_ratios = []
-        self.batch_dup10_ratios = []  # 新增：用户内部top-10重复率
+        # 仅统计每个 batch 的 Top-10 合法率
+        self.batch_legal_at10 = []
         
         # 调试信息：确认使用了DIFF_GRMEvaluator
         print(f'>> Using evaluator = {self.__class__.__name__} (AR beam)')
-        print(f'>> Recall: uses any() to avoid duplicate scoring')
-        print(f'>> NDCG: uses first-hit-only to avoid duplicate DCG accumulation')
-        print(f'>> Fixed: index bounds checking to prevent out-of-bounds errors')
-        print(f'>> Added: illegal sequence filtering for more accurate evaluation')
+        print(f'>> Recall: any() 按首次命中计分')
+        print(f'>> NDCG: first-hit-only 计算')
 
 
 
@@ -162,43 +153,19 @@ class AR_GRMEvaluator:
         results = {}
         pos_index = self.calculate_pos_index(preds, labels)
         
-        # 🚀 更新总体统计
+        # ---------- 仅统计 Top-10 合法率 ----------
         B, maxk, n_digit = preds.shape
-        self.total_seqs += preds.numel() // n_digit
-        self.total_legals += sum(
-            self.tokenizer.codebooks_to_item_id(seq.tolist()) is not None
-            for seq in preds.view(-1, n_digit)
-        )
-        self.total_unique += len({
-            tuple(seq.tolist()) for seq in preds.view(-1, n_digit)
-        })
-        
-        # 🚀 计算当前batch的SID组合统计
-        # 修复合法率计算：使用序列数作为分母，而不是token数
-        total_seqs = preds.numel() // n_digit
-        current_legal_ratio = sum(
-            self.tokenizer.codebooks_to_item_id(seq.tolist()) is not None
-            for seq in preds.view(-1, n_digit)
-        ) / total_seqs
-        
-        current_duplicate_ratio = 1 - len({
-            tuple(seq.tolist()) for seq in preds.view(-1, n_digit)
-        }) / total_seqs
-        
-        # 收集统计信息用于计算平均值
-        self.batch_legal_ratios.append(current_legal_ratio)
-        self.batch_duplicate_ratios.append(current_duplicate_ratio)
-
-        # ✅ 新增：把 batch 级合法率/重复率作为“指标”回传（Trainer 会自动求均值并写入 TB）
-        results[f'legal_ratio{suffix}'] = torch.tensor([current_legal_ratio], dtype=torch.float32)
-        results[f'duplicate_ratio{suffix}'] = torch.tensor([current_duplicate_ratio], dtype=torch.float32)
-        
-        # ---------- 计算"用户内部"Top-10 重复率 ----------
-        dup10 = self._dup_ratio_per_user(preds, k=10)     # [B]
-        results[f'dup@10{suffix}'] = dup10                         # 会被平均后写入 final_results
-        
-        # 顺便累计到 batch 统计（想看全局平均）
-        self.batch_dup10_ratios.append(dup10.mean().item())
+        K = min(10, maxk)
+        legal_mask = []
+        for b in range(B):
+            cnt = 0
+            for j in range(K):
+                if self.tokenizer.codebooks_to_item_id(preds[b, j].tolist()) is not None:
+                    cnt += 1
+            legal_mask.append(cnt / float(K))
+        legal_at10 = torch.tensor(legal_mask, dtype=torch.float32)
+        results['legal@10'] = legal_at10
+        self.batch_legal_at10.append(legal_at10.mean().item())
         
         for metric in self.config['metrics']:
             for k in self.config['topk']:
@@ -212,23 +179,7 @@ class AR_GRMEvaluator:
         return results
     
     def print_final_stats(self):
-        """打印最终统计结果"""
-        if self.total_seqs > 0:
-            # 计算总体统计
-            legal_ratio = self.total_legals / self.total_seqs
-            # 修复重复率计算：使用正确的公式
-            duplicate_ratio = 1 - self.total_unique / self.total_seqs
-            
-            # 计算batch平均值（更准确）
-            if self.batch_legal_ratios:
-                avg_legal_ratio = sum(self.batch_legal_ratios) / len(self.batch_legal_ratios)
-                avg_duplicate_ratio = sum(self.batch_duplicate_ratios) / len(self.batch_duplicate_ratios)
-                
-                print(f"[SID_STATS] 平均合法率: {avg_legal_ratio:.3f}, 平均重复率: {avg_duplicate_ratio:.3f}")
-                
-                # 新增：用户内部top-10重复率统计
-                if self.batch_dup10_ratios:
-                    avg_dup10 = sum(self.batch_dup10_ratios) / len(self.batch_dup10_ratios)
-                    print(f"[SID_STATS] 用户内部 Top-10 平均重复率: {avg_dup10:.3f}")
-            else:
-                print(f"[SID_STATS] 总体合法率: {legal_ratio:.3f}, 总体重复率: {duplicate_ratio:.3f}") 
+        """打印最终统计结果（仅 Top-10 合法率）"""
+        if self.batch_legal_at10:
+            avg_legal_at10 = sum(self.batch_legal_at10) / len(self.batch_legal_at10)
+            print(f"[SID_STATS] Top-10 合法率: {avg_legal_at10:.3f}")

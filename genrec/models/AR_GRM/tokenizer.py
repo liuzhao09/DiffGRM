@@ -19,11 +19,11 @@ from genrec.tokenizer import AbstractTokenizer
 
 class AR_GRMTokenizer(AbstractTokenizer):
     """
-    DIFF_GRM Tokenizer for Diffusion-based Generative Recommendation Model
-    
+    AR_GRM Tokenizer for autoregressive generative recommendation
+
     Special tokens:
     - PAD=0, BOS=1, EOS=2, SID_OFFSET=3
-    
+
     SID Configuration:
     - n_digit: configurable (e.g., 4, 8, 12), codebook_size=256
     - vocab_size = 3 + n_digit * codebook_size
