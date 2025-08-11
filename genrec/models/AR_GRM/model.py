@@ -545,10 +545,34 @@ class AR_GRM(AbstractModel):
 
                 beams = beams.view(B, -1, self.n_digit)   # [B, num_beams, n_digit]
                 lp = lp.view(B, -1)                       # [B, num_beams]
+
+                # === Legality filtering among current top beams ===
+                # Sort beams by log-probability descending, then take the top-K legal sequences
                 K = min(TOPK, lp.size(1))
-                _, top_i = torch.topk(lp, k=K, dim=-1)    # [B, K]
-                idx = top_i.unsqueeze(-1).expand(-1, -1, self.n_digit)  # [B,K,n_digit]
-                final = beams.gather(1, idx)              # [B, K, n_digit]
+                sorted_lp, sorted_idx = torch.sort(lp, dim=-1, descending=True)
+                sorted_idx_exp = sorted_idx.unsqueeze(-1).expand(-1, -1, self.n_digit)
+                sorted_beams = beams.gather(1, sorted_idx_exp)  # [B, num_beams, n_digit]
+
+                final_list = []
+                num_beams = sorted_beams.size(1)
+                for b in range(B):
+                    selected = []
+                    # iterate over sorted candidates; keep only legal sequences
+                    for j in range(num_beams):
+                        seq = sorted_beams[b, j].tolist()
+                        if self.tokenizer.codebooks_to_item_id(seq) is not None:
+                            selected.append(sorted_beams[b, j])
+                            if len(selected) >= K:
+                                break
+                    # Fallbacks: ensure we always return K sequences
+                    if len(selected) == 0:
+                        # if no legal sequence found, fall back to the best candidate
+                        selected.append(sorted_beams[b, 0])
+                    while len(selected) < K:
+                        selected.append(selected[-1])
+                    final_list.append(torch.stack(selected, dim=0))
+
+                final = torch.stack(final_list, dim=0)  # [B, K, n_digit]
                 return final
         finally:
             if was_training:

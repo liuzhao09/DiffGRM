@@ -255,7 +255,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
 ```
 CUDA_VISIBLE_DEVICES=0 python main.py \
     --category=CDs_and_Vinyl \
-    --train_batch_size=1024 \
+    --train_batch_size=256 \
     --model=DIFF_GRM \
     --n_digit=4 \
     --masking_strategy=sequential \
@@ -270,13 +270,13 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --eval_start_epoch=30 \
     --lr=0.001 \
     --label_smoothing=0.1 \
-    --sent_emb_model="BAAI/bge-large-en-v1.5" \
+    --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
     --sent_emb_dim=1024 \
     --sent_emb_pca=256 \
-    --sent_emb_batch_size=256 \
+    --sent_emb_batch_size=64 \
     --normalize_after_pca=true \
     --force_regenerate_opq=true \
-    --share_decoder_output_embedding=true > runs/cds/4layer_bgepca256_1sequential_2e4d_256dim_diff_8_9_1.txt 2>&1 &
+    --share_decoder_output_embedding=true > runs/cds/4layer_gtepca256_1sequential_2e4d_256dim_diff_8_11_20.txt 2>&1 &
 ```
 
 AR_GRM（自回归对照实验）
