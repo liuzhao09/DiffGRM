@@ -247,7 +247,21 @@ class DIFF_GRM(AbstractModel):
         else:
             # 旧的随机掩码分支（保持原逻辑）
             # Diffusion specific parameters - 多概率掩码配置
-            if 'mask_probs' in config and config['mask_probs'] is not None:
+            # 新增：支持按区间随机采样单一掩码概率，并可通过augment_factor重复该概率
+            if config.get('mask_prob_random', False):
+                low = float(config.get('mask_prob_random_min', 0.0))
+                high = float(config.get('mask_prob_random_max', 1.0))
+                if not (0.0 <= low <= high <= 1.0):
+                    raise ValueError(
+                        f"mask_prob_random_min/max must satisfy 0.0 <= min <= max <= 1.0, got min={low}, max={high}"
+                    )
+                sampled_prob = float(np.random.uniform(low, high))
+                self.augment_factor = int(config.get('augment_factor', 4))
+                self.mask_probs = [sampled_prob] * self.augment_factor
+                print(
+                    f"[MODEL] Using RANDOMLY-SAMPLED masking prob: {sampled_prob:.4f} (range [{low}, {high}]) x {self.augment_factor}"
+                )
+            elif 'mask_probs' in config and config['mask_probs'] is not None:
                 # 新方式：直接指定多个掩码概率
                 mask_probs_raw = config['mask_probs']
                 
