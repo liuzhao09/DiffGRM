@@ -528,7 +528,16 @@ class DIFF_GRM(AbstractModel):
                     all_encoder_hidden.append(encoder_hidden)
         else:
             # 旧的随机掩码分支（保持原逻辑）
+            # LLaDA风格：若启用mask_prob_random，则每个batch独立采样一次掩码率
+            batch_mask_prob = None
+            if getattr(self, 'mask_prob_random', False):
+                low = float(self.config.get('mask_prob_random_min', 0.0))
+                high = float(self.config.get('mask_prob_random_max', 1.0))
+                # 使用torch采样以便与全局随机种子一致
+                batch_mask_prob = float(torch.empty(1).uniform_(low, high).item())
             for view_idx, mask_prob in enumerate(self.mask_probs):
+                if batch_mask_prob is not None:
+                    mask_prob = batch_mask_prob
                 # 为当前掩码概率生成掩码
                 mask_positions = torch.rand(B, self.n_digit, device=device) < mask_prob  # [B, n_digit]
                 

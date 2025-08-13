@@ -88,9 +88,6 @@ class DIFF_GRMTrainer:
         self.log(f'[TRAINING] Evaluation config: start from epoch {eval_start_epoch}, interval: {eval_interval}')
 
         for epoch in range(n_epochs):
-            # 当采用随机掩码概率时，在每个epoch开始重新采样一次概率
-            if hasattr(self.model, 'resample_mask_prob_if_needed'):
-                self.model.resample_mask_prob_if_needed()
             # Training
             self.model.train()
             total_loss = 0.0

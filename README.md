@@ -80,7 +80,7 @@ Note that:
 
 
 ```
-CUDA_VISIBLE_DEVICES=0 python main.py \
+CUDA_VISIBLE_DEVICES=2 python main.py \
   --category=Sports_and_Outdoors \
   --train_batch_size=1024 \
   --model=DIFF_GRM \
@@ -103,7 +103,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_rand01_2e4d_256dim_8_13_16.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_rand01_2e4d_256dim_8_13_17.txt 2>&1 &
 ```
 
 AR_GRM（自回归对照实验）
