@@ -97,13 +97,13 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --eval_start_epoch=25 \
   --lr=0.003 \
   --label_smoothing=0.1 \
-  --sent_emb_model="BAAI/bge-large-en-v1.5" \
-  --sent_emb_dim=1024 \
+  --sent_emb_model="sentence-transformers/sentence-t5-base" \
+  --sent_emb_dim=768 \
   --sent_emb_pca=256 \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_seq1_2e4d_256dim_8_8_16.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_rand01_2e4d_256dim_8_13_16.txt 2>&1 &
 ```
 
 AR_GRM（自回归对照实验）
