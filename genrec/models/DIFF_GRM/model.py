@@ -615,40 +615,42 @@ class DIFF_GRM(AbstractModel):
         
         decoder_hidden = self.ln_f(decoder_hidden)  # [B_expanded, n_digit, emb_dim]
         
-        # 计算损失：只在被掩码的位置计算
-        total_loss = 0.0
-        total_weight = 0.0
-        
-        for d in range(self.n_digit):
-            # 计算当前digit的logits
-            logits_d = self._compute_digit_logits(decoder_hidden[:, d, :], digit=d)  # [B_expanded, codebook_size]
-            
-            # 获取标签和掩码
-            labels_d = decoder_labels[:, d]  # [B_expanded]
-            mask_d = mask_positions[:, d].float()  # [B_expanded]
-            
-            # 计算交叉熵损失
-            loss_d = F.cross_entropy(logits_d, labels_d, reduction='none', label_smoothing=self.config.get('label_smoothing', 0.1))  # [B_expanded]
-            
-            # 只在被掩码的位置计算损失
-            weighted_loss = loss_d * mask_d
-            total_loss += weighted_loss.sum()
-            total_weight += mask_d.sum()
-        
-        # 平均损失
-        if total_weight > 0:
-            total_loss = total_loss / total_weight
-        else:
-            total_loss = torch.tensor(0.0, device=device, requires_grad=True)
-        
-        # 当使用 random + mask_prob_random=true 时：
-        # 1) 不做多视图（已在 __init__ 中将 augment_factor 置为 1）
-        # 2) 将最终损失按 1 / mask_prob 进行缩放（高掩码率→权重低，低掩码率→权重高）
+        # 计算损失
         if self.masking_strategy == 'random' and getattr(self, 'mask_prob_random', False):
-            prob = float(getattr(self, 'sampled_mask_prob', self.mask_probs[0] if self.mask_probs else 0.5))
-            eps = 1e-6
-            scale = 1.0 / max(prob, eps)
-            total_loss = total_loss * scale
+            # LLaDA 风格：对每个样本先按掩码位汇总，再乘以 1/t，有效抑制不同掩码率带来的尺度差异
+            # 这里的 t 使用“实际掩码率”而非采样参数，避免极小 t 被强制掩一个位时产生过大权重
+            per_sample_loss = torch.zeros(B_expanded, device=device)
+            for d in range(self.n_digit):
+                logits_d = self._compute_digit_logits(decoder_hidden[:, d, :], digit=d)
+                labels_d = decoder_labels[:, d]
+                mask_d = mask_positions[:, d].float()
+                loss_d = F.cross_entropy(
+                    logits_d, labels_d, reduction='none',
+                    label_smoothing=self.config.get('label_smoothing', 0.1)
+                )
+                per_sample_loss += loss_d * mask_d  # 只计掩码位
+            # 实际掩码率 t_i：每个样本被掩的比例
+            t_actual = mask_positions.float().mean(dim=1)  # [B_expanded]
+            t_actual = torch.clamp(t_actual, min=1e-6)
+            total_loss = (per_sample_loss / t_actual).mean()  # 按batch求平均
+        else:
+            # 原逻辑：只在掩码位计算损失，并按被掩码token数做平均
+            total_loss = 0.0
+            total_weight = 0.0
+            for d in range(self.n_digit):
+                logits_d = self._compute_digit_logits(decoder_hidden[:, d, :], digit=d)
+                labels_d = decoder_labels[:, d]
+                mask_d = mask_positions[:, d].float()
+                loss_d = F.cross_entropy(
+                    logits_d, labels_d, reduction='none',
+                    label_smoothing=self.config.get('label_smoothing', 0.1)
+                )
+                total_loss += (loss_d * mask_d).sum()
+                total_weight += mask_d.sum()
+            if total_weight > 0:
+                total_loss = total_loss / total_weight
+            else:
+                total_loss = torch.tensor(0.0, device=device, requires_grad=True)
         
         output = ModelOutput()
         output.loss = total_loss
