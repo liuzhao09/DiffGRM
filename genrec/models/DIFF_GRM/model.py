@@ -244,6 +244,18 @@ class DIFF_GRM(AbstractModel):
                   f"paths={self.sequential_paths}, augment_factor={self.augment_factor}")
             # 移除不必要的mask_probs设置，节省内存
             self.mask_probs = None
+        elif self.masking_strategy == 'guided':
+            # 置信度引导的连贯多视图（每个batch由模型决定揭示顺序）
+            guided_cfg = config.get('guided_steps', 'auto')
+            self.guided_steps = self.n_digit if guided_cfg in (None, 'auto') else int(guided_cfg)
+            assert 1 <= self.guided_steps <= self.n_digit, \
+                f"guided_steps must be 1~{self.n_digit}, got {self.guided_steps}"
+            self.guided_conf_metric = config.get('guided_conf_metric', 'top1')
+            assert self.guided_conf_metric in ('top1', 'entropy'), \
+                f"guided_conf_metric must be one of ['top1','entropy'], got {self.guided_conf_metric}"
+            self.augment_factor = self.guided_steps
+            print(f"[MODEL] ▶ use GUIDED views: steps={self.guided_steps}, metric={self.guided_conf_metric}, augment_factor={self.augment_factor}")
+            self.mask_probs = None
         else:
             # 旧的随机掩码分支（保持原逻辑）
             # Diffusion specific parameters - 多概率掩码配置
@@ -522,6 +534,86 @@ class DIFF_GRM(AbstractModel):
                     inp = decoder_input_ids.clone()
                     inp[mask_pos] = 0                          # 掩码位写 0
 
+                    all_masked_input_ids.append(inp)
+                    all_labels.append(decoder_labels)
+                    all_mask_positions.append(mask_pos.float())
+                    all_encoder_hidden.append(encoder_hidden)
+        elif self.masking_strategy == 'guided':
+            # 基于模型置信度的连贯多视图
+            guided_refresh = bool(self.config.get('guided_refresh_each_step', False))
+            
+            def compute_confidence(logits_full, labels):
+                # logits_full: [B, n_digit, codebook_size]
+                # labels: [B, n_digit]
+                if self.guided_conf_metric == 'entropy':
+                    probs = F.softmax(logits_full, dim=-1)
+                    ent = -(probs * torch.clamp(probs, min=1e-12).log()).sum(dim=-1)  # [B, n_digit]
+                    return -ent  # 置信度=负熵，越大越确定
+                else:  # 'top1'：对真标签的预测概率
+                    probs = F.log_softmax(logits_full, dim=-1).exp()  # [B, n_digit, codebook_size]
+                    gathered = probs.gather(-1, labels.unsqueeze(-1)).squeeze(-1)  # [B, n_digit]
+                    return gathered
+            
+            # Step-0: 全掩码，作为第一个视图
+            full_mask = torch.ones(B, self.n_digit, dtype=torch.bool, device=device)
+            inp0 = decoder_input_ids.new_zeros(B, self.n_digit)
+            all_masked_input_ids.append(inp0)
+            all_labels.append(decoder_labels)
+            all_mask_positions.append(full_mask.float())
+            all_encoder_hidden.append(encoder_hidden)
+            
+            if guided_refresh:
+                # 每一步都根据当前输入重新计算置信度与揭示位置
+                revealed = torch.zeros(B, self.n_digit, dtype=torch.bool, device=device)
+                cur_inp = inp0.clone()
+                cur_mask = full_mask.clone()
+                for step in range(1, self.guided_steps):
+                    # 用当前视图计算 logits
+                    batch_dict = {
+                        'decoder_input_ids': cur_inp,
+                        'encoder_hidden': encoder_hidden,
+                        'mask_positions': cur_mask.float(),
+                    }
+                    with torch.no_grad():
+                        outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
+                        logits_full = outputs.logits  # [B, n_digit, codebook_size]
+                    conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
+                    # 只在仍被掩码的位置中选择最高置信度
+                    conf_masked = conf.masked_fill(~cur_mask, float('-inf'))  # 未掩码的位置不参与
+                    best_pos = torch.argmax(conf_masked, dim=1)  # [B]
+                    
+                    # 更新 revealed/mask/input
+                    batch_idx = torch.arange(B, device=device)
+                    revealed[batch_idx, best_pos] = True
+                    cur_mask = ~revealed
+                    cur_inp = decoder_input_ids.new_zeros(B, self.n_digit)
+                    cur_inp[revealed] = decoder_labels[revealed]
+                    
+                    # 记录当前视图
+                    all_masked_input_ids.append(cur_inp.clone())
+                    all_labels.append(decoder_labels)
+                    all_mask_positions.append(cur_mask.float().clone())
+                    all_encoder_hidden.append(encoder_hidden)
+            else:
+                # 仅用一次全掩码的 logits 计算全局揭示顺序，随后按该顺序逐步揭示
+                batch_dict = {
+                    'decoder_input_ids': inp0,
+                    'encoder_hidden': encoder_hidden,
+                    'mask_positions': full_mask.float(),
+                }
+                with torch.no_grad():
+                    outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
+                    logits_full = outputs.logits  # [B, n_digit, codebook_size]
+                conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
+                orders = torch.argsort(conf, dim=1, descending=True)  # [B, n_digit]
+                for reveal in range(1, self.guided_steps):
+                    mask_pos = torch.ones_like(full_mask)  # 全部先 MASK
+                    reveal_idx = orders[:, :reveal]        # [B, reveal]
+                    mask_pos.scatter_(1, reveal_idx, 0)    # 置 0 表示不掩码
+                    inp = decoder_input_ids.new_zeros(B, self.n_digit)
+                    # 不掩码位置放入真值
+                    batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(-1, reveal)
+                    inp[batch_idx, reveal_idx] = decoder_labels[batch_idx, reveal_idx]
                     all_masked_input_ids.append(inp)
                     all_labels.append(decoder_labels)
                     all_mask_positions.append(mask_pos.float())

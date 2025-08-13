@@ -54,15 +54,30 @@ max_generation_len: 4
 
 # Diffusion Configuration
 # === Mask-Augment 相关 ===
-masking_strategy: random      # random | sequential
+masking_strategy: random      # random | sequential | guided
+
+# sequential 连贯视图
 sequential_steps: auto        # auto(=n_digit) 或 1~n_digit 的整数（建议≤n_digit-1以跳过全揭开视图）
-sequential_paths: 1           # 新增——同一个样本并行多少条随机路径（仅sequential模式有效）
-# 新方式：多概率掩码配置（优先级更高）
-mask_prob_random: true
-mask_probs: "1.0,0.75,0.5,0.25"    # 4种不同的掩码概率，对应4个视图
+sequential_paths: 1           # 同一个样本并行多少条随机路径（仅sequential模式有效）
+
+# guided 置信度引导的连贯视图
+guided_steps: auto            # auto(=n_digit) 或 1~n_digit
+guided_conf_metric: top1      # top1 | entropy
+guided_refresh_each_step: false  # 是否每步刷新一次置信度（true更准，false更快）
+
+# random 随机掩码
+# 新方式：按区间随机采样掩码率（LLaDA式训练稳定化），与 mask_probs 互斥
+mask_prob_random: false
+mask_prob_random_min: 0.0
+mask_prob_random_max: 1.0
+
+# 指定多概率掩码（优先级高于 mask_prob），如 "1.0,0.75,0.5,0.25"；不使用请置为 null
+mask_probs: null
+
 # 旧方式：单一掩码配置（作为备选）
-mask_prob: 0.5                     # 训练时的掩码概率（仅在未设置mask_probs时使用）也可改为随机0-1
+mask_prob: 0.5                     # 训练时的掩码概率（仅在未设置mask_probs时使用）
 augment_factor: 4                   # 数据增强倍数（仅在未设置mask_probs时使用）
+
 max_history_len: 50                 # 历史序列最大长度
 
 # Data Split Configuration
