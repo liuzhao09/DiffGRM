@@ -27,8 +27,8 @@ train_use_kv_cache: false
 
 # AR Beam Search (sequential digits)
 ar_beam_search:
-  pre_cut_num: [64, 64, 64, 64]
-  beam_search_num: [64, 64, 64, 64]
+  pre_cut_num: [128, 128, 128, 128]
+  beam_search_num: [128, 128, 128, 128]
   top_k_final: 10
   self_kv_cache: true
   cross_kv_cache: true
