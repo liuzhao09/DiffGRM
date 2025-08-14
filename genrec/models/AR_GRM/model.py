@@ -138,7 +138,7 @@ class DecoderBlock(nn.Module):
         self.mlp = FeedForward(emb_dim, n_inner, resid_drop, act)
 
     def forward(self, x, encoder_hidden=None, attention_mask=None, 
-                past_key_value=None, use_cache=False, cross_key_value=None):
+                past_key_value=None, use_cache=False, cross_key_value=None, cross_attention_mask=None):
         # 自注意力（支持传入因果掩码）
         self_past_kv = None
         cross_past_kv = None
@@ -170,7 +170,8 @@ class DecoderBlock(nn.Module):
                 self.ln_2(x),
                 key_value=encoder_kv,
                 past_key_value=cross_past_kv,
-                use_cache=use_cache
+                use_cache=use_cache,
+                attention_mask=cross_attention_mask  # 新增：cross attention mask
             )
             x = x + cross_attn_output
             
@@ -342,6 +343,10 @@ class AR_GRM(AbstractModel):
         history_sid = batch['history_sid'].to(device)  # [B, seq_len, n_digit]
         B, seq_len, n_digit = history_sid.shape
         
+        # 生成encoder的padding mask
+        valid_k = history_sid.ne(0).any(dim=-1)             # [B, S] True=有效位置
+        enc_key_mask = valid_k[:, None, None, :]            # [B,1,1,S] 只屏蔽 Key 端
+        
         # 与RPG_ED保持一致的处理方式
         # history_sid 已经是 token id（包含了 sid_offset 与 digit 偏移），直接使用即可
         history_tokens = history_sid.long().clamp(0, self.vocab_size - 1)
@@ -363,10 +368,11 @@ class AR_GRM(AbstractModel):
         encoder_hidden = item_emb + pos_emb  # [B, S, d]
         encoder_hidden = self.drop(encoder_hidden)
         
-        # Pass through encoder blocks
+        # Pass through encoder blocks with padding mask
         encoder_hidden = encoder_hidden
         for block in self.encoder_blocks:
-            encoder_hidden = block(encoder_hidden)
+            # 传入 enc_key_mask，让 encoder 不看 padding 的 key
+            encoder_hidden = block(encoder_hidden, attention_mask=enc_key_mask)
         
         encoder_hidden = self.ln_f(encoder_hidden)  # [B, S, d]
 
@@ -405,8 +411,16 @@ class AR_GRM(AbstractModel):
             encoder_kv_list.append(torch.cat([k, v], dim=-1))
 
         for i, blk in enumerate(self.decoder_blocks):
-            out = blk(x, encoder_hidden=encoder_hidden, attention_mask=attn_mask,
-                      past_key_value=None, use_cache=False, cross_key_value=encoder_kv_list[i])
+            # 给 self-attn 传因果 mask；给 cross-attn 也传 enc_key_mask
+            out = blk(
+                x, 
+                encoder_hidden=encoder_hidden, 
+                attention_mask=attn_mask,                 # 自注意力的因果mask
+                past_key_value=None, 
+                use_cache=False, 
+                cross_key_value=encoder_kv_list[i],
+                cross_attention_mask=enc_key_mask         # 新增：cross attention的padding mask
+            )
             x = out['hidden_states']
 
         x = self.ln_f(x)  # [B, n_digit+1, d]
@@ -436,14 +450,19 @@ class AR_GRM(AbstractModel):
                 kv_list.append(torch.cat([k, v], dim=-1))
         return kv_list
 
-    def _decode_step(self, x_last, cross_kv_list, past_kv=None):
+    def _decode_step(self, x_last, cross_kv_list, past_kv=None, enc_key_mask=None):
         # x_last: [N,1,d]
         x = x_last
         present = []
         for i, blk in enumerate(self.decoder_blocks):
             self_out, self_present = self.self_attend_step(blk, x, past_kv[i] if past_kv else None)
             x = x + self_out
-            cross_out, cross_present = blk.cross_attn(blk.ln_2(x), key_value=cross_kv_list[i], use_cache=True)
+            cross_out, cross_present = blk.cross_attn(
+                blk.ln_2(x), 
+                key_value=cross_kv_list[i], 
+                use_cache=True,
+                attention_mask=enc_key_mask   # 新增
+            )
             x = x + cross_out
             x = x + blk.mlp(blk.ln_3(x))
             present.append((self_present, cross_present))
@@ -471,13 +490,18 @@ class AR_GRM(AbstractModel):
                 beam_num = cfg.get('beam_search_num', [256]*self.n_digit)
                 TOPK = min(cfg.get('top_k_final', n_return_sequences), n_return_sequences)
 
+                # 生成encoder的padding mask（与训练时一致）
+                history_sid = batch['history_sid'].to(encoder_hidden.device)
+                valid_k = history_sid.ne(0).any(dim=-1)
+                enc_key_mask = valid_k[:, None, None, :]
+
                 # 预计算 cross-KV
                 cross_kv = self._precompute_cross_kv(encoder_hidden)
 
                 device = encoder_hidden.device
                 bos = self.bos_embedding.to(device).unsqueeze(0).unsqueeze(1).expand(B, 1, -1)
                 # step0
-                x, present = self._decode_step(bos, cross_kv, past_kv=None)
+                x, present = self._decode_step(bos, cross_kv, past_kv=None, enc_key_mask=enc_key_mask)
                 logits0 = self._compute_digit_logits(x[:, 0, :], digit=0)
                 logp0 = F.log_softmax(logits0, dim=-1)
 
@@ -508,9 +532,11 @@ class AR_GRM(AbstractModel):
                 lp = best_lp.view(-1)
                 last_emb = emb_of_digit_token(0, beams[:, -1])
                 cross_kv_exp = [expand_to_beam(kv, keep_k) for kv in cross_kv]
+                # 扩展cross attention mask
+                enc_key_mask_exp = expand_to_beam(enc_key_mask, keep_k)
 
                 for d in range(1, self.n_digit):
-                    x, present = self._decode_step(last_emb, cross_kv_exp, past_kv=beam_self_kv)
+                    x, present = self._decode_step(last_emb, cross_kv_exp, past_kv=beam_self_kv, enc_key_mask=enc_key_mask_exp)
                     logit = self._compute_digit_logits(x[:, 0, :], digit=d)
                     logp = F.log_softmax(logit, dim=-1)
 

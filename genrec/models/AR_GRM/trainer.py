@@ -46,8 +46,18 @@ class AR_GRMTrainer:
             weight_decay=self.config['weight_decay']
         )
 
-        total_n_steps = get_total_steps(self.config, train_dataloader)
-        if total_n_steps == 0:
+        # 先不计算 num_training_steps，先 prepare
+        self.model, optimizer, train_dataloader, val_dataloader = self.accelerator.prepare(
+            self.model, optimizer, train_dataloader, val_dataloader
+        )
+
+        # 每个进程"看见"的 steps/epoch
+        steps_per_epoch = len(train_dataloader)
+
+        # 正确的总步数（以"每个进程"视角）：epochs * steps_per_epoch
+        num_training_steps = self.config['epochs'] * steps_per_epoch
+
+        if num_training_steps == 0:
             self.log('No training steps needed.')
             return None, None
 
@@ -55,12 +65,10 @@ class AR_GRMTrainer:
             name="cosine",
             optimizer=optimizer,
             num_warmup_steps=self.config['warmup_steps'],
-            num_training_steps=total_n_steps,
+            num_training_steps=num_training_steps,
         )
 
-        self.model, optimizer, train_dataloader, val_dataloader, scheduler = self.accelerator.prepare(
-            self.model, optimizer, train_dataloader, val_dataloader, scheduler
-        )
+        scheduler = self.accelerator.prepare(scheduler)
         
         self.accelerator.init_trackers(
             project_name=get_file_name(self.config, suffix=''),
@@ -68,7 +76,8 @@ class AR_GRMTrainer:
             init_kwargs={"tensorboard": {"flush_secs": 60}},
         )
 
-        n_epochs = np.ceil(total_n_steps / (len(train_dataloader) * self.accelerator.num_processes)).astype(int)
+        # 训练轮数直接用配置值，不要再除以进程数
+        n_epochs = int(self.config['epochs'])
         best_epoch = 0
         best_val_score = -1
         
