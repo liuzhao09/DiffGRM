@@ -95,6 +95,13 @@ sent_emb_pca: 256
 normalize_after_pca: true
 sent_emb_batch_size: 512
 
+# SID Quantization
+# opq_pq(默认) | rq_kmeans | none(随机映射)
+sid_quantizer: opq_pq
+rq_kmeans_niters: 20
+rq_kmeans_seed: 2026
+sid_random_seed: 2026
+
 # OPQ Configuration
 opq_use_gpu: False
 opq_gpu_id: 0
