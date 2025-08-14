@@ -64,6 +64,7 @@ sequential_paths: 1           # 同一个样本并行多少条随机路径（仅
 guided_steps: auto            # auto(=n_digit) 或 1~n_digit
 guided_conf_metric: top1      # top1 | entropy
 guided_refresh_each_step: false  # 是否每步刷新一次置信度（true更准，false更快）
+guided_select: most           # most | least  (揭示最有把握/最不把握的位置)
 
 # random 随机掩码
 # 新方式：按区间随机采样掩码率（LLaDA式训练稳定化），与 mask_probs 互斥

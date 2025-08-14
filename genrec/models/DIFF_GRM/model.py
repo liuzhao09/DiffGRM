@@ -253,8 +253,12 @@ class DIFF_GRM(AbstractModel):
             self.guided_conf_metric = config.get('guided_conf_metric', 'top1')
             assert self.guided_conf_metric in ('top1', 'entropy'), \
                 f"guided_conf_metric must be one of ['top1','entropy'], got {self.guided_conf_metric}"
+            # 新增：选择揭示“最有把握(most)”或“最不把握(least)”的位置
+            self.guided_select = config.get('guided_select', 'most')
+            assert self.guided_select in ('most', 'least'), \
+                f"guided_select must be one of ['most','least'], got {self.guided_select}"
             self.augment_factor = self.guided_steps
-            print(f"[MODEL] ▶ use GUIDED views: steps={self.guided_steps}, metric={self.guided_conf_metric}, augment_factor={self.augment_factor}")
+            print(f"[MODEL] ▶ use GUIDED views: steps={self.guided_steps}, metric={self.guided_conf_metric}, select={self.guided_select}, augment_factor={self.augment_factor}")
             self.mask_probs = None
         else:
             # 旧的随机掩码分支（保持原逻辑）
@@ -578,9 +582,13 @@ class DIFF_GRM(AbstractModel):
                         outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
                         logits_full = outputs.logits  # [B, n_digit, codebook_size]
                     conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
-                    # 只在仍被掩码的位置中选择最高置信度
-                    conf_masked = conf.masked_fill(~cur_mask, float('-inf'))  # 未掩码的位置不参与
-                    best_pos = torch.argmax(conf_masked, dim=1)  # [B]
+                    # 只在仍被掩码的位置中选择位置
+                    if self.guided_select == 'most':
+                        conf_masked = conf.masked_fill(~cur_mask, float('-inf'))
+                        best_pos = torch.argmax(conf_masked, dim=1)
+                    else:  # 'least'
+                        conf_masked = conf.masked_fill(~cur_mask, float('inf'))
+                        best_pos = torch.argmin(conf_masked, dim=1)
                     
                     # 更新 revealed/mask/input
                     batch_idx = torch.arange(B, device=device)
@@ -605,7 +613,10 @@ class DIFF_GRM(AbstractModel):
                     outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
                     logits_full = outputs.logits  # [B, n_digit, codebook_size]
                 conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
-                orders = torch.argsort(conf, dim=1, descending=True)  # [B, n_digit]
+                if self.guided_select == 'most':
+                    orders = torch.argsort(conf, dim=1, descending=True)
+                else:
+                    orders = torch.argsort(conf, dim=1, descending=False)
                 for reveal in range(1, self.guided_steps):
                     mask_pos = torch.ones_like(full_mask)  # 全部先 MASK
                     reveal_idx = orders[:, :reveal]        # [B, reveal]
