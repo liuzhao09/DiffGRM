@@ -478,12 +478,23 @@ def init_device():
 
 def config_for_log(config: dict) -> dict:
     config = config.copy()
+    # 移除不可序列化/无意义的对象
     config.pop('device', None)
     config.pop('accelerator', None)
+
+    # TensorBoard hparams 只接受: int, float, str, bool, torch.Tensor
+    # 这里将所有非标量类型统一转换为字符串，避免类型错误
+    sanitized = {}
     for k, v in config.items():
-        if isinstance(v, list):
-            config[k] = str(v)
-    return config
+        if isinstance(v, (int, float, str, bool)):
+            sanitized[k] = v
+        else:
+            # 包括 list/tuple/dict/None/numpy 类型等，统一转为字符串
+            try:
+                sanitized[k] = str(v)
+            except Exception:
+                sanitized[k] = '<unserializable>'
+    return sanitized
 
 
 def num_tokens_from_string(string: str, encoding_name: str) -> int:

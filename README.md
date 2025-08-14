@@ -80,13 +80,14 @@ Note that:
 
 
 ```
-CUDA_VISIBLE_DEVICES=2 python main.py \
+CUDA_VISIBLE_DEVICES=0 python main.py \
   --category=Sports_and_Outdoors \
   --train_batch_size=1024 \
   --model=DIFF_GRM \
   --n_digit=4 \
   --masking_strategy=guided \
   --guided_refresh_each_step=true \
+  --guided_select=least \
   --encoder_n_layer=2 \
   --decoder_n_layer=4 \
   --n_head=4 \
@@ -103,7 +104,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_guided_2e4d_256dim_8_13_18.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/sports/4layer_bgepca256_guided_least_2e4d_256dim_8_14_13.txt 2>&1 &
 ```
 
 AR_GRM（自回归对照实验）
@@ -196,30 +197,31 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
 ### Toys and Games
 
 ```
-CUDA_VISIBLE_DEVICES=2 python main.py \
-    --category=Toys_and_Games \
-    --train_batch_size=1024 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --masking_strategy=sequential \
-    --sequential_paths=1 \
-    --encoder_n_layer=2 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=128 \
-    --n_inner=1024 \
-    --train_sliding=true \
-    --min_hist_len=2 \
-    --eval_start_epoch=20 \
-    --lr=0.003 \
-    --label_smoothing=0.05 \
-    --sent_emb_model="sentence-transformers/sentence-t5-base" \
-    --sent_emb_dim=768 \
-    --sent_emb_pca=256 \
-    --sent_emb_batch_size=512 \
-    --normalize_after_pca=true \
-    --force_regenerate_opq=true \
-    --share_decoder_output_embedding=true > runs/toys/4layer_pca256_1sequential_2e4d_128dim_diff_8_11_10.txt 2>&1 &
+CUDA_VISIBLE_DEVICES=1 python main.py \
+  --category=Toys_and_Games \
+  --train_batch_size=1024 \
+  --model=DIFF_GRM \
+  --n_digit=4 \
+  --masking_strategy=guided \
+  --guided_refresh_each_step=true \
+  --guided_select=least \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=4 \
+  --n_embd=256 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --eval_start_epoch=25 \
+  --lr=0.003 \
+  --label_smoothing=0.02 \
+  --sent_emb_model="sentence-transformers/sentence-t5-base" \
+  --sent_emb_dim=768 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true > runs/toys/4layer_bgepca256_guided_least_2e4d_256dim_8_14_12.txt 2>&1 &
 ```
 
 AR_GRM（自回归对照实验）
