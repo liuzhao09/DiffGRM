@@ -256,7 +256,13 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         for stage in range(self.n_digit):
             kmeans = faiss.Kmeans(d=d, k=K, niter=niter, verbose=False, seed=seed + stage)
             kmeans.train(residuals[train_mask])
-            centroids = faiss.vector_float_to_array(kmeans.centroids).reshape(K, d)
+            # In current Faiss Python, Kmeans.centroids is already a numpy array
+            centroids = np.asarray(kmeans.centroids, dtype=np.float32)
+            if centroids.ndim == 1:
+                centroids = centroids.reshape(K, d)
+            elif centroids.shape == (d, K):
+                centroids = centroids.T
+            assert centroids.shape == (K, d), f"centroids shape {centroids.shape} != {(K, d)}"
             
             # 为全部样本分配最近质心
             index = faiss.IndexFlatL2(d)
