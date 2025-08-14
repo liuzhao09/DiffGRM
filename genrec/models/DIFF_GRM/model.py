@@ -543,92 +543,103 @@ class DIFF_GRM(AbstractModel):
                     all_mask_positions.append(mask_pos.float())
                     all_encoder_hidden.append(encoder_hidden)
         elif self.masking_strategy == 'guided':
-            # 基于模型置信度的连贯多视图
+            # 基于模型置信度的"从易到难遮住"多视图（不包含全MASK起始样本）
             guided_refresh = bool(self.config.get('guided_refresh_each_step', False))
             
             def compute_confidence(logits_full, labels):
                 # logits_full: [B, n_digit, codebook_size]
-                # labels: [B, n_digit]
+                # labels:      [B, n_digit]
                 if self.guided_conf_metric == 'entropy':
                     probs = F.softmax(logits_full, dim=-1)
                     ent = -(probs * torch.clamp(probs, min=1e-12).log()).sum(dim=-1)  # [B, n_digit]
-                    return -ent  # 置信度=负熵，越大越确定
+                    return -ent  # 置信度=负熵，越大越"有把握"
                 else:  # 'top1'：对真标签的预测概率
-                    probs = F.log_softmax(logits_full, dim=-1).exp()  # [B, n_digit, codebook_size]
-                    gathered = probs.gather(-1, labels.unsqueeze(-1)).squeeze(-1)  # [B, n_digit]
-                    return gathered
+                    logp = F.log_softmax(logits_full, dim=-1)
+                    return logp.gather(-1, labels.unsqueeze(-1)).squeeze(-1).exp()
             
-            # Step-0: 全掩码，作为第一个视图
-            full_mask = torch.ones(B, self.n_digit, dtype=torch.bool, device=device)
-            inp0 = decoder_input_ids.new_zeros(B, self.n_digit)
-            all_masked_input_ids.append(inp0)
-            all_labels.append(decoder_labels)
-            all_mask_positions.append(full_mask.float())
-            all_encoder_hidden.append(encoder_hidden)
+            # 约定：我们一共产出 guided_steps 条样本（通常 == n_digit）
+            B = decoder_labels.size(0)
+            full_ones = torch.ones(B, self.n_digit, dtype=torch.bool, device=device)
             
             if guided_refresh:
-                # 每一步都根据当前输入重新计算置信度与揭示位置
-                revealed = torch.zeros(B, self.n_digit, dtype=torch.bool, device=device)
-                cur_inp = inp0.clone()
-                cur_mask = full_mask.clone()
-                for step in range(1, self.guided_steps):
-                    # 用当前视图计算 logits
-                    batch_dict = {
-                        'decoder_input_ids': cur_inp,
-                        'encoder_hidden': encoder_hidden,
-                        'mask_positions': cur_mask.float(),
-                    }
+                # 每步刷新：基于"当前已遮"的视图估计置信度，然后新增一个要遮的位置
+                masked = torch.zeros(B, self.n_digit, dtype=torch.bool, device=device)  # False=未遮
+
+                for step in range(1, self.guided_steps + 1):
+                    # 1) 用"当前 masked"形成评估输入：未遮位=真值，已遮位=0(MASK)
+                    eval_inp = decoder_input_ids.new_zeros(B, self.n_digit)
+                    eval_inp[~masked] = decoder_labels[~masked]
+                    eval_mask = masked.float()
+
                     with torch.no_grad():
-                        outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
-                        logits_full = outputs.logits  # [B, n_digit, codebook_size]
+                        out = self.forward_decoder_only(
+                            {'decoder_input_ids': eval_inp,
+                             'encoder_hidden': encoder_hidden,
+                             'mask_positions': eval_mask},
+                            return_loss=False, digit=None, use_cache=False
+                        )
+                        logits_full = out.logits  # [B, n_digit, K]
+
                     conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
-                    # 只在仍被掩码的位置中选择位置
+
+                    # 2) 从"尚未被遮"的位置里挑一个
                     if self.guided_select == 'most':
-                        conf_masked = conf.masked_fill(~cur_mask, float('-inf'))
-                        best_pos = torch.argmax(conf_masked, dim=1)
+                        # 选最有把握的位置来"新增遮罩"
+                        conf_mask = conf.masked_fill(masked, float('-inf'))
+                        pick = torch.argmax(conf_mask, dim=1)
                     else:  # 'least'
-                        conf_masked = conf.masked_fill(~cur_mask, float('inf'))
-                        best_pos = torch.argmin(conf_masked, dim=1)
-                    
-                    # 更新 revealed/mask/input
-                    batch_idx = torch.arange(B, device=device)
-                    revealed[batch_idx, best_pos] = True
-                    cur_mask = ~revealed
+                        conf_mask = conf.masked_fill(masked, float('inf'))
+                        pick = torch.argmin(conf_mask, dim=1)
+
+                    # 更新遮罩集合
+                    masked[torch.arange(B, device=device), pick] = True
+
+                    # 3) 用"更新后的 masked"形成本步训练视图：未遮=真值，已遮=0(MASK)
                     cur_inp = decoder_input_ids.new_zeros(B, self.n_digit)
-                    cur_inp[revealed] = decoder_labels[revealed]
-                    
-                    # 记录当前视图
-                    all_masked_input_ids.append(cur_inp.clone())
+                    cur_inp[~masked] = decoder_labels[~masked]
+
+                    all_masked_input_ids.append(cur_inp)
                     all_labels.append(decoder_labels)
-                    all_mask_positions.append(cur_mask.float().clone())
+                    all_mask_positions.append(masked.float().clone())  # True=被遮的位置
                     all_encoder_hidden.append(encoder_hidden)
+         
             else:
-                # 仅用一次全掩码的 logits 计算全局揭示顺序，随后按该顺序逐步揭示
-                batch_dict = {
-                    'decoder_input_ids': inp0,
-                    'encoder_hidden': encoder_hidden,
-                    'mask_positions': full_mask.float(),
-                }
+                # ---- 一次性排序：先用"全MASK输入"估计一次置信度，然后按顺序逐步增加遮罩 ----
+                # NOTE: 只用于排序，不把这条全MASK样本加入训练视图
+                inp0 = decoder_input_ids.new_zeros(B, self.n_digit)
                 with torch.no_grad():
-                    outputs = self.forward_decoder_only(batch_dict, digit=None, use_cache=False)
-                    logits_full = outputs.logits  # [B, n_digit, codebook_size]
+                    out = self.forward_decoder_only(
+                        {'decoder_input_ids': inp0,
+                         'encoder_hidden': encoder_hidden,
+                         'mask_positions': full_ones.float()},  # 纯为一致性，这里不会影响logits计算
+                        return_loss=False, digit=None, use_cache=False
+                    )
+                    logits_full = out.logits  # [B, n_digit, K]
                 conf = compute_confidence(logits_full, decoder_labels)  # [B, n_digit]
+                
                 if self.guided_select == 'most':
-                    orders = torch.argsort(conf, dim=1, descending=True)
+                    # 从"最有把握"到"最没把握"
+                    order = torch.argsort(conf, dim=1, descending=True)   # [B, n_digit]
                 else:
-                    orders = torch.argsort(conf, dim=1, descending=False)
-                for reveal in range(1, self.guided_steps):
-                    mask_pos = torch.ones_like(full_mask)  # 全部先 MASK
-                    reveal_idx = orders[:, :reveal]        # [B, reveal]
-                    mask_pos.scatter_(1, reveal_idx, 0)    # 置 0 表示不掩码
-                    inp = decoder_input_ids.new_zeros(B, self.n_digit)
-                    # 不掩码位置放入真值
-                    batch_idx = torch.arange(B, device=device).unsqueeze(1).expand(-1, reveal)
-                    inp[batch_idx, reveal_idx] = decoder_labels[batch_idx, reveal_idx]
-                    all_masked_input_ids.append(inp)
+                    # 从"最没把握"到"最有把握"
+                    order = torch.argsort(conf, dim=1, descending=False)  # [B, n_digit]
+                
+                # 逐步"增加遮罩"：第t步遮住 order[:, :t]
+                for t in range(1, self.guided_steps + 1):
+                    # 当前要遮的列
+                    cur_mask = torch.zeros(B, self.n_digit, dtype=torch.bool, device=device)
+                    cols = order[:, :t]  # [B, t]
+                    cur_mask.scatter_(1, cols, True)  # True=遮
+                    
+                    # 未遮列放真值
+                    cur_inp = decoder_input_ids.new_zeros(B, self.n_digit)
+                    cur_inp[~cur_mask] = decoder_labels[~cur_mask]
+                    
+                    all_masked_input_ids.append(cur_inp)
                     all_labels.append(decoder_labels)
-                    all_mask_positions.append(mask_pos.float())
+                    all_mask_positions.append(cur_mask.float())
                     all_encoder_hidden.append(encoder_hidden)
+        
         else:
             # 旧的随机掩码分支（保持原逻辑）
             # LLaDA风格：若启用mask_prob_random，则每个batch独立采样一次掩码率
