@@ -29,18 +29,32 @@ class AR_GRMTokenizer(AbstractTokenizer):
     - vocab_size = 3 + n_digit * codebook_size
     """
     def __init__(self, config: dict, dataset: AbstractDataset):
-        self.n_codebook_bits = self._get_codebook_bits(config['codebook_size'])
-        self.quantizer = config.get('quantizer', 'pq').lower()
+        # 兜底，避免 KeyError
+        config.setdefault('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+        config.setdefault('num_proc', 1)
 
-        # PQ 默认沿用现有逻辑；RQ 使用 ResidualQuantizer，index_factory 仅作为命名标签
-        if self.quantizer == 'pq':
+        self.n_codebook_bits = self._get_codebook_bits(config['codebook_size'])
+        
+        # 统一量化器：支持 sid_quantizer（兼容 quantizer）
+        sid_q = config.get('sid_quantizer', None)
+        if sid_q is None:
+            q_old = config.get('quantizer', 'pq').lower()
+            sid_q = {'pq': 'opq_pq', 'rq': 'rq_kmeans'}.get(q_old, 'opq_pq')
+        self.sid_quantizer = sid_q
+        assert self.sid_quantizer in ('opq_pq', 'rq_kmeans', 'none'), \
+            f"sid_quantizer must be one of ['opq_pq','rq_kmeans','none'], got {self.sid_quantizer}"
+        
+        # 与 DIFF_GRM 对齐的 index_factory
+        if self.sid_quantizer == 'opq_pq':
             use_opq = not config.get('disable_opq', False)
             if use_opq:
                 self.index_factory = f'OPQ{config["n_digit"]},IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
             else:
                 self.index_factory = f'IVF1,PQ{config["n_digit"]}x{self.n_codebook_bits}'
-        else:
-            self.index_factory = f'RQ{config["n_digit"]}x{self.n_codebook_bits}'
+        elif self.sid_quantizer == 'rq_kmeans':
+            self.index_factory = f'RQKMEANS{config["n_digit"]}x{self.n_codebook_bits}'
+        else:  # 'none'
+            self.index_factory = f'RAND{config["n_digit"]}x{self.n_codebook_bits}'
 
         # 先初始化父类，保证 self.config / self.logger 等字段可用
         super(AR_GRMTokenizer, self).__init__(config, dataset)
@@ -97,7 +111,7 @@ class AR_GRMTokenizer(AbstractTokenizer):
     def _encode_sent_emb(self, dataset: AbstractDataset, output_path: str):
         """编码句子嵌入：支持任意 Hugging Face SentenceTransformer 模型 id，并做向量归一化"""
         assert self.config['metadata'] == 'sentence', \
-            'DIFF_GRMTokenizer only supports sentence metadata.'
+            'AR_GRMTokenizer only supports sentence metadata.'
 
         meta_sentences = []
         for i in range(1, dataset.n_items):
@@ -156,14 +170,15 @@ class AR_GRMTokenizer(AbstractTokenizer):
         return mask
 
     def _generate_semantic_id_opq(self, sent_embs, sem_ids_path, train_mask):
-        """使用OPQ生成语义ID"""
+        """使用OPQ/PQ生成语义ID（兼容 disable_opq），并用 invlists 的 ids 对齐。"""
         import faiss
         
-        # 添加调试信息
+        # 调试信息
         self.log(f'[TOKENIZER] sent_embs shape: {sent_embs.shape}')
         self.log(f'[TOKENIZER] train_mask shape: {train_mask.shape}')
         self.log(f'[TOKENIZER] train_mask True count: {np.sum(train_mask)}')
-        
+
+        # 构建索引
         if self.config['opq_use_gpu']:
             res = faiss.StandardGpuResources()
             res.setTempMemory(1024 * 1024 * 512)
@@ -183,58 +198,92 @@ class AR_GRMTokenizer(AbstractTokenizer):
         if self.config['opq_use_gpu']:
             index = faiss.index_gpu_to_cpu(index)
 
-        ivf_index = faiss.downcast_index(index.index)
+        # 兼容 IndexPreTransform 与非 PreTransform
+        if isinstance(index, faiss.IndexPreTransform):
+            ivf_index = faiss.downcast_index(index.index)
+        else:
+            ivf_index = faiss.downcast_index(index)
+
         invlists = faiss.extract_index_ivf(ivf_index).invlists
         ls = invlists.list_size(0)
-        pq_codes = faiss.rev_swig_ptr(invlists.get_codes(0), ls * invlists.code_size)
-        pq_codes = pq_codes.reshape(-1, invlists.code_size)
+        # 取 codes 与 ids，并保持同序对齐
+        codes_ptr = invlists.get_codes(0)
+        ids_ptr = invlists.get_ids(0)
+        pq_codes_u8 = faiss.rev_swig_ptr(codes_ptr, ls * invlists.code_size)
+        ids = faiss.rev_swig_ptr(ids_ptr, ls).copy()
+        pq_codes_u8 = pq_codes_u8.reshape(-1, invlists.code_size)
 
+        # 解析 PQ Code
         faiss_sem_ids = []
-        n_bytes = pq_codes.shape[1]
-        for u8code in pq_codes:
+        n_bytes = invlists.code_size
+        for u8code in pq_codes_u8:
             bs = faiss.BitstringReader(faiss.swig_ptr(u8code), n_bytes)
             code = []
-            for i in range(self.n_digit):
+            for _ in range(self.n_digit):
                 code.append(bs.read(self.n_codebook_bits))
             faiss_sem_ids.append(code)
-        pq_codes = np.array(faiss_sem_ids)
 
+        # 用 ids 对齐 item 顺序
         item2sem_ids = {}
-        for i in range(pq_codes.shape[0]):
-            item = self.id2item[i + 1]
-            item2sem_ids[item] = tuple(pq_codes[i].tolist())
+        for pos, iid0 in enumerate(ids):
+            item = self.id2item[int(iid0) + 1]
+            item2sem_ids[item] = tuple(int(v) for v in faiss_sem_ids[pos])
+
         self.log(f'[TOKENIZER] Saving semantic IDs to {sem_ids_path}...')
+        os.makedirs(os.path.dirname(sem_ids_path), exist_ok=True)
         with open(sem_ids_path, 'w') as f:
             json.dump(item2sem_ids, f)
 
-    def _generate_semantic_id_rq(self, sent_embs, sem_ids_path, train_mask):
-        """使用 ResidualQuantizer 生成语义ID（残差量化），输出与 OPQ/PQ 路径一致的 code 序列"""
+    def _generate_semantic_id_rq_kmeans(self, sent_embs, sem_ids_path, train_mask):
+        """使用 Residual Quantization（KMeans）生成语义ID（与 DIFF_GRM 对齐）"""
         import faiss
-        self.log(f'[TOKENIZER][RQ] Training residual quantizer...')
-        faiss.omp_set_num_threads(self.config['faiss_omp_num_threads'])
-
         d = sent_embs.shape[1]
-        M = self.config['n_digit']
-        nbits = self.n_codebook_bits
-
-        rq = faiss.ResidualQuantizer(d, M, nbits)
-        rq.train(sent_embs[train_mask])
-
-        # 编码
-        try:
-            codes = rq.compute_codes(sent_embs)
-        except AttributeError:
-            codes = np.empty((sent_embs.shape[0], M), dtype='uint8')
-            rq.encode(sent_embs, codes)
-        if codes.ndim == 1:
-            codes = codes.reshape(-1, M)
-
-        # 保存为与 OPQ 路径一致的 JSON
+        K = self.codebook_size
+        niter = int(self.config.get('rq_kmeans_niters', 20))
+        seed = int(self.config.get('rq_kmeans_seed', 1234))
+        
+        # 初始化残差为原始向量
+        residuals = sent_embs.copy().astype(np.float32, copy=False)
+        codes_all = np.zeros((sent_embs.shape[0], self.n_digit), dtype=np.int64)
+        
+        for stage in range(self.n_digit):
+            kmeans = faiss.Kmeans(d=d, k=K, niter=niter, verbose=False, seed=seed + stage)
+            kmeans.train(residuals[train_mask])
+            # In current Faiss Python, Kmeans.centroids is already a numpy array
+            centroids = np.asarray(kmeans.centroids, dtype=np.float32)
+            if centroids.ndim == 1:
+                centroids = centroids.reshape(K, d)
+            elif centroids.shape == (d, K):
+                centroids = centroids.T
+            assert centroids.shape == (K, d), f"centroids shape {centroids.shape} != {(K, d)}"
+            
+            # 为全部样本分配最近质心
+            index = faiss.IndexFlatL2(d)
+            index.add(centroids)
+            D, I = index.search(residuals, 1)  # I: [N, 1]
+            codes_all[:, stage] = I[:, 0].astype(np.int64)
+            
+            # 更新残差
+            residuals = residuals - centroids[I[:, 0]]
+        
+        # 转成 dict
         item2sem_ids = {}
-        for i in range(codes.shape[0]):
+        for i in range(codes_all.shape[0]):
             item = self.id2item[i + 1]
-            item2sem_ids[item] = tuple(int(c) for c in codes[i])
-        self.log(f'[TOKENIZER][RQ] Saving semantic IDs to {sem_ids_path}...')
+            item2sem_ids[item] = tuple(int(v) for v in codes_all[i].tolist())
+        os.makedirs(os.path.dirname(sem_ids_path), exist_ok=True)
+        with open(sem_ids_path, 'w') as f:
+            json.dump(item2sem_ids, f)
+
+    def _generate_semantic_id_random(self, sem_ids_path, n_items, seed=12345):
+        """为每个商品随机生成 n_digit 个 codebook ID（均匀[0, K-1]）"""
+        rng = np.random.default_rng(seed)
+        item2sem_ids = {}
+        for i in range(1, n_items):
+            item = self.id2item[i]
+            codes = rng.integers(low=0, high=self.codebook_size, size=self.n_digit, endpoint=False, dtype=np.int64)
+            item2sem_ids[item] = tuple(int(c) for c in codes.tolist())
+        os.makedirs(os.path.dirname(sem_ids_path), exist_ok=True)
         with open(sem_ids_path, 'w') as f:
             json.dump(item2sem_ids, f)
 
@@ -251,154 +300,135 @@ class AR_GRMTokenizer(AbstractTokenizer):
 
     def _init_tokenizer(self, dataset: AbstractDataset):
         """初始化tokenizer"""
-        # 构建路径 - 修复：使用类名和category
-        dataset_name = dataset.__class__.__name__  # 使用类名，如"AmazonReviews2014"
-        
-        # 如果有category属性，加入路径中
+        # 构建路径（与 DIFF 一致）
+        dataset_name = dataset.__class__.__name__
         if hasattr(dataset, 'category') and dataset.category:
-            cache_dir = os.path.join(
-                dataset.cache_dir, 'processed'
-            )
+            cache_dir = os.path.join(dataset.cache_dir, 'processed')
         else:
-            cache_dir = os.path.join(
-                'data', dataset_name, 'processed'
-            )
-        
-        # 加载语义ID（在文件名中加入 PCA 维度，避免同一模型不同PCA冲突）
+            cache_dir = os.path.join('data', dataset_name, 'processed')
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # 量化器标签（含 seed/iters）
+        model_basename = os.path.basename(self.config["sent_emb_model"])
+        quant_tag = self.index_factory
+        if self.sid_quantizer == 'rq_kmeans':
+            quant_tag += f'_seed{self.config.get("rq_kmeans_seed",1234)}_it{self.config.get("rq_kmeans_niters",20)}'
+        elif self.sid_quantizer == 'none':
+            quant_tag += f'_seed{self.config.get("sid_random_seed",12345)}'
+
         sem_ids_path = os.path.join(
             cache_dir,
-            f'{os.path.basename(self.config["sent_emb_model"])}_pca{self.config["sent_emb_pca"]}_{self.index_factory}.sem_ids'
+            f'{model_basename}_pca{self.config["sent_emb_pca"]}_{quant_tag}.sem_ids'
         )
 
-        # 🚀 新增：检查是否需要强制重新生成量化结果（兼容旧键）
-        force_regenerate_codes = self.config.get('force_regenerate_codes', False) or self.config.get('force_regenerate_opq', False)
-        
-        # 两份嵌入文件：raw 和 pca 版本，避免命名歧义与冲突
-        model_basename = os.path.basename(self.config["sent_emb_model"]) 
-        raw_path = os.path.join(
-            cache_dir,
-            f'{model_basename}_raw_d{self.config["sent_emb_dim"]}.sent_emb'
-        )
-        pca_path = os.path.join(
-            cache_dir,
-            f'{model_basename}_pca{self.config["sent_emb_pca"]}.sent_emb'
-        )
+        # 两份嵌入文件：raw / pca
+        raw_path = os.path.join(cache_dir, f'{model_basename}_raw_d{self.config["sent_emb_dim"]}.sent_emb')
+        pca_path = os.path.join(cache_dir, f'{model_basename}_pca{self.config["sent_emb_pca"]}.sent_emb')
 
+        force_regenerate = self.config.get('force_regenerate_opq', False) or self.config.get('force_regenerate_codes', False)
+
+        # 按量化器选择向量管线
         sent_embs = None
-        # 优先读取 PCA 后的文件（若配置开启PCA）
-        if self.config['sent_emb_pca'] > 0 and os.path.exists(pca_path):
-            self.log(f'[TOKENIZER] Loading PCA-ed sentence embeddings from {pca_path}...')
-            sent_embs = np.fromfile(pca_path, dtype=np.float32).reshape(
-                -1, self.config['sent_emb_pca']
-            )
-        elif os.path.exists(raw_path):
-            # 读取原始向量（未PCA），如需PCA则再变换并保存
-            self.log(f'[TOKENIZER] Loading RAW sentence embeddings from {raw_path}...')
-            raw_embs = np.fromfile(raw_path, dtype=np.float32).reshape(
-                -1, self.config['sent_emb_dim']
-            )
-            if self.config['sent_emb_pca'] > 0:
-                self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
-                from sklearn.decomposition import PCA
-                pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
-                training_item_mask = self._get_items_for_training(dataset)
-                pca.fit(raw_embs[training_item_mask])
-                sent_embs = pca.transform(raw_embs)
-                sent_embs = sent_embs.astype(np.float32, copy=False)
-                # 可选：PCA 后再做一次 L2 归一化，保持与内积度量的一致性
-                if self.config.get('normalize_after_pca', True):
-                    norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
-                    sent_embs = sent_embs / norms
-                # 保存PCA后的向量，加速下次启动
-                sent_embs.tofile(pca_path)
+        if self.sid_quantizer == 'opq_pq':
+            if self.config['sent_emb_pca'] > 0 and os.path.exists(pca_path):
+                self.log(f'[TOKENIZER] Loading PCA-ed sentence embeddings from {pca_path}...')
+                sent_embs = np.fromfile(pca_path, dtype=np.float32).reshape(-1, self.config['sent_emb_pca'])
+            elif os.path.exists(raw_path):
+                self.log(f'[TOKENIZER] Loading RAW sentence embeddings from {raw_path}...')
+                raw_embs = np.fromfile(raw_path, dtype=np.float32).reshape(-1, self.config['sent_emb_dim'])
+                if self.config['sent_emb_pca'] > 0:
+                    self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
+                    from sklearn.decomposition import PCA
+                    pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
+                    training_item_mask = self._get_items_for_training(dataset)
+                    pca.fit(raw_embs[training_item_mask])
+                    sent_embs = pca.transform(raw_embs).astype(np.float32, copy=False)
+                    if self.config.get('normalize_after_pca', True):
+                        norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
+                        sent_embs = sent_embs / norms
+                    sent_embs.tofile(pca_path)
+                else:
+                    sent_embs = raw_embs
             else:
-                sent_embs = raw_embs
-        else:
-            # 都不存在：重新encode，并保存 raw；若配置PCA则同步生成并保存 pca
-            self.log(f'[TOKENIZER] Encoding sentence embeddings...')
-            raw_embs = self._encode_sent_emb(dataset, raw_path)
-            if self.config['sent_emb_pca'] > 0:
-                self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
-                from sklearn.decomposition import PCA
-                pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
-                training_item_mask = self._get_items_for_training(dataset)
-                pca.fit(raw_embs[training_item_mask])
-                sent_embs = pca.transform(raw_embs)
-                sent_embs = sent_embs.astype(np.float32, copy=False)
-                if self.config.get('normalize_after_pca', True):
-                    norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
-                    sent_embs = sent_embs / norms
-                sent_embs.tofile(pca_path)
-            else:
-                sent_embs = raw_embs
-        self.log(f'[TOKENIZER] Sentence embeddings shape: {sent_embs.shape}')
+                self.log(f'[TOKENIZER] Encoding sentence embeddings...')
+                raw_embs = self._encode_sent_emb(dataset, raw_path)
+                if self.config['sent_emb_pca'] > 0:
+                    self.log(f'[TOKENIZER] Applying PCA to sentence embeddings...')
+                    from sklearn.decomposition import PCA
+                    pca = PCA(n_components=self.config['sent_emb_pca'], whiten=True)
+                    training_item_mask = self._get_items_for_training(dataset)
+                    pca.fit(raw_embs[training_item_mask])
+                    sent_embs = pca.transform(raw_embs).astype(np.float32, copy=False)
+                    if self.config.get('normalize_after_pca', True):
+                        norms = np.linalg.norm(sent_embs, axis=1, keepdims=True) + 1e-12
+                        sent_embs = sent_embs / norms
+                    sent_embs.tofile(pca_path)
+                else:
+                    sent_embs = raw_embs
+            self.log(f'[TOKENIZER] Sentence embeddings shape: {sent_embs.shape}')
 
-        # 🚀 修改：总是重新生成OPQ量化结果（如果配置要求或文件不存在）
-        if force_regenerate_codes or not os.path.exists(sem_ids_path):
-            if force_regenerate_codes:
-                self.log(f'[TOKENIZER] Force regenerating quantization results...')
+        elif self.sid_quantizer == 'rq_kmeans':
+            # RQ-KMeans：只用 RAW，不做 PCA
+            if os.path.exists(raw_path):
+                self.log(f'[TOKENIZER] Loading RAW sentence embeddings from {raw_path}...')
+                sent_embs = np.fromfile(raw_path, dtype=np.float32).reshape(-1, self.config['sent_emb_dim'])
             else:
-                self.log(f'[TOKENIZER] Quantization results not found, generating...')
+                self.log(f'[TOKENIZER] Encoding sentence embeddings (RAW, no PCA for RQ-KMeans)...')
+                sent_embs = self._encode_sent_emb(dataset, raw_path)
+            self.log(f'[TOKENIZER] Sentence embeddings shape (RAW): {sent_embs.shape}')
 
-            # 生成语义ID（按 quantizer 分派）
+        # 生成或加载量化结果
+        if force_regenerate or not os.path.exists(sem_ids_path):
+            if force_regenerate:
+                self.log(f'[TOKENIZER] Force regenerating quantization results ({self.sid_quantizer})...')
+            else:
+                self.log(f'[TOKENIZER] Quantization results not found, generating ({self.sid_quantizer})...')
             training_item_mask = self._get_items_for_training(dataset)
-            if self.quantizer == 'pq':
+            if self.sid_quantizer == 'opq_pq':
                 self._generate_semantic_id_opq(sent_embs, sem_ids_path, training_item_mask)
-            else:
-                self._generate_semantic_id_rq(sent_embs, sem_ids_path, training_item_mask)
+            elif self.sid_quantizer == 'rq_kmeans':
+                self._generate_semantic_id_rq_kmeans(sent_embs, sem_ids_path, training_item_mask)
+            else:  # 'none'
+                self._generate_semantic_id_random(
+                    sem_ids_path, n_items=self.dataset.n_items,
+                    seed=int(self.config.get('sid_random_seed', 12345))
+                )
         else:
             self.log(f'[TOKENIZER] Using existing quantization results from {sem_ids_path}')
 
+        # 加载 sem_ids → tokens
         self.log(f'[TOKENIZER] Loading semantic IDs from {sem_ids_path}...')
         item2sem_ids = json.load(open(sem_ids_path, 'r'))
         item2tokens = self._sem_ids_to_tokens(item2sem_ids)
 
-        # 🚀 新增：映射文件也按 模型+PCA+index+n_digit 区分，完全避免冲突
-        model_basename = os.path.basename(self.config["sent_emb_model"]) 
-        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{self.index_factory}_{self.n_digit}d'
+        # 同步映射文件名（含 seed/iters）
+        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{quant_tag}_{self.n_digit}d'
         fwd_path = os.path.join(cache_dir, f'item_id2tokens_{map_tag}.npy')
         inv_path = os.path.join(cache_dir, f'tokens2item_{map_tag}.pkl')
-        
-        # 🚀 修复①：处理映射文件的一致性（统一使用 force_regenerate_codes 开关）
-        if force_regenerate_codes:
-            # 强制重新生成时，直接忽略旧文件，让下面逻辑走"重新保存"
+
+        if force_regenerate:
             fwd_exists = inv_exists = False
             self.log(f'[TOKENIZER] Force regenerate enabled, ignoring existing mapping files')
         else:
             fwd_exists = os.path.exists(fwd_path)
             inv_exists = os.path.exists(inv_path)
-        
+
         if fwd_exists and inv_exists:
-            # ---------- ① 文件已存在 ----------
             self.log(f'[TOKENIZER] Loading existing mappings for tag: {map_tag} from {fwd_path}')
-            
-            # 重新构建item2tokens映射
             item_id2tokens = np.load(fwd_path)
             item2tokens = {}
             for iid, toks in enumerate(item_id2tokens):
-                if iid == 0:  # PAD行全0，跳过
+                if iid == 0:
                     continue
                 item2tokens[self.id2item[iid]] = tuple(toks.tolist())
-            
-            # 加载倒排索引
             with open(inv_path, 'rb') as f:
                 self.tokens2item = pickle.load(f)
-                
             self.log(f'[TOKENIZER] Successfully loaded {len(item2tokens)} item mappings')
         else:
-            # ---------- ② 文件不存在或强制重新生成，需要重新生成 ----------
-            if force_regenerate_codes:
-                self.log(f'[TOKENIZER] Force regenerate enabled, generating new mappings')
-            else:
-                self.log(f'[TOKENIZER] No existing mappings found for {self.n_digit}-digit, will generate new ones')
-            
-            # 无论是文件不存在还是 forceRegenerate，都按新的 item2tokens 保存
             self.item2tokens = item2tokens
             self.tokens2item = self._create_reverse_mapping()
-            self._save_mappings()  # 只在"新建"时真正落盘
+            self._save_mappings()
 
-        # ---- ③ 统一：把映射挂到实例属性再返回 ----
-        # 注意：在"文件已存在"分支中，需要设置self.item2tokens
         if not hasattr(self, 'item2tokens'):
             self.item2tokens = item2tokens
         return item2tokens
@@ -413,24 +443,22 @@ class AR_GRMTokenizer(AbstractTokenizer):
 
     def _save_mappings(self):
         """保存映射文件"""
-        # 构建路径 - 修复：使用类名和category
-        dataset_name = self.dataset.__class__.__name__  # 使用类名，如"AmazonReviews2014"
-        
-        # 如果有category属性，加入路径中
+        # 构建路径（与 DIFF 一致）
+        dataset_name = self.dataset.__class__.__name__
         if hasattr(self.dataset, 'category') and self.dataset.category:
-            cache_dir = os.path.join(
-                self.dataset.cache_dir, 'processed'
-            )
+            cache_dir = os.path.join(self.dataset.cache_dir, 'processed')
         else:
-            cache_dir = os.path.join(
-                'data', dataset_name, 'processed'
-            )
-        
+            cache_dir = os.path.join('data', dataset_name, 'processed')
         os.makedirs(cache_dir, exist_ok=True)
         
-        # 🚀 文件名包含：模型+PCA+index+n_digit，完全避免不同配置冲突
+        # 文件名包含：模型+PCA+量化器标签(+种子/iters)+n_digit，完全避免不同配置冲突
         model_basename = os.path.basename(self.config["sent_emb_model"]) 
-        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{self.index_factory}_{self.n_digit}d'
+        quant_tag = self.index_factory
+        if self.sid_quantizer == 'rq_kmeans':
+            quant_tag += f'_seed{self.config.get("rq_kmeans_seed",1234)}_it{self.config.get("rq_kmeans_niters",20)}'
+        elif self.sid_quantizer == 'none':
+            quant_tag += f'_seed{self.config.get("sid_random_seed",12345)}'
+        map_tag = f'{model_basename}_pca{self.config["sent_emb_pca"]}_{quant_tag}_{self.n_digit}d'
         
         # 保存正排索引：item_id → SID-tokens
         item_id2tokens = np.zeros((self.dataset.n_items, self.n_digit), dtype=np.int64)
@@ -523,7 +551,6 @@ class AR_GRMTokenizer(AbstractTokenizer):
         """tokenize函数 - 修复数据泄露问题"""
         item_seq = example['item_seq']  # Python list
         target_item = item_seq[-1]  # 原始字符串
-        target_item_id = self.item2id.get(target_item, 0)  # 转换为整数ID，0为未知商品
         
         # 修复：所有split都应该用item_seq[:-1]作为历史，避免数据泄露
         history_sid = self.encode_history(item_seq[:-1])
