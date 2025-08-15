@@ -54,7 +54,7 @@ max_generation_len: 4
 
 # Diffusion Configuration
 # === Mask-Augment 相关 ===
-masking_strategy: random      # random | sequential | guided
+masking_strategy: sequential      # random | sequential | guided
 
 # sequential 连贯视图
 sequential_steps: auto        # auto(=n_digit) 或 1~n_digit 的整数（建议≤n_digit-1以跳过全揭开视图）
