@@ -511,9 +511,9 @@ class AR_GRMTokenizer(AbstractTokenizer):
             decoder_input = codebook_tokens  # [cb0, cb1, cb2, cb3]
             decoder_labels = codebook_tokens  # [cb0, cb1, cb2, cb3]
         else:
-            # 未知商品
+            # 🚀 修复：未知商品使用-100作为ignore_index，避免与合法codebook 0冲突
             decoder_input = [self.pad_token] * self.n_digit  # 长度n_digit
-            decoder_labels = [self.pad_token] * self.n_digit  # 长度n_digit
+            decoder_labels = [-100] * self.n_digit  # 使用-100作为ignore_index
         
         return decoder_input, decoder_labels
 

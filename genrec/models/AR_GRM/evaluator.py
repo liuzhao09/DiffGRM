@@ -126,7 +126,7 @@ class AR_GRMEvaluator:
 
     def calculate_weighted_score(self, preds, labels):
         """
-        计算加权综合分数：NDCG@10 * 0.6 + RECALL@10 * 0.4
+        计算加权综合分数：NDCG@10 * 0.8 + RECALL@10 * 0.2
         
         Args:
             preds: (batch_size, beam_size, n_digit) - 生成的SID序列
@@ -143,7 +143,7 @@ class AR_GRMEvaluator:
         # 计算RECALL@10
         recall_10 = self.recall_at_k(pos_index, k=10)
         
-        # 计算加权分数：NDCG@10 * 0.6 + RECALL@10 * 0.4
+        # 计算加权分数：NDCG@10 * 0.8 + RECALL@10 * 0.2
         weighted_score = 0.8 * ndcg_10 + 0.2 * recall_10
         
         return weighted_score

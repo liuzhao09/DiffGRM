@@ -74,6 +74,14 @@ class MultiHeadAttention(nn.Module):
             att = att.masked_fill(attention_mask == 0, float('-inf'))
 
         att = F.softmax(att, dim=-1)
+        att = torch.nan_to_num(att, nan=0.0)  # 🚀 修复：防止全屏蔽行的 NaN 扩散
+        
+        # 🚀 改进：使用更稳健的全零归一化，避免全屏蔽行引入PAD信息泄露
+        if attention_mask is not None:
+            # 再次乘 mask 并做归一化，确保没有合法 key 时该行注意力全零
+            att = att * attention_mask  # 广播到 (B, n_head, T, T_kv)
+            denom = att.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+            att = att / denom
         att = self.attn_dropout(att)
 
         # Apply attention to values
@@ -163,8 +171,12 @@ class DecoderBlock(nn.Module):
                 # 🚀 使用预计算的KV，避免重复计算
                 encoder_kv = cross_key_value
             else:
-                # 兼容旧逻辑：重新计算（仅用于非优化路径）
-                encoder_kv = torch.cat([encoder_hidden, encoder_hidden], dim=-1)  # Concat K and V
+                # 🚀 修复：使用与训练/推理一致的线性投影路径
+                kv_proj = self.cross_attn.qkv(encoder_hidden)  # [B,S,3*D]
+                D = self.cross_attn.emb_dim
+                k = kv_proj[..., D:2*D]
+                v = kv_proj[..., 2*D:]
+                encoder_kv = torch.cat([k, v], dim=-1)  # [B,S,2*D]
             
             cross_attn_output, cross_present = self.cross_attn(
                 self.ln_2(x),
@@ -345,6 +357,8 @@ class AR_GRM(AbstractModel):
         
         # 生成encoder的padding mask
         valid_k = history_sid.ne(0).any(dim=-1)             # [B, S] True=有效位置
+        # 🚀 设计说明：使用 (B,1,1,S) 形状，表示"只屏蔽 Key 端"
+        # 这会广播到 (B,n_head,T,S)，让注意力机制不看 PAD 位置的 key
         enc_key_mask = valid_k[:, None, None, :]            # [B,1,1,S] 只屏蔽 Key 端
         
         # 与RPG_ED保持一致的处理方式
@@ -369,7 +383,6 @@ class AR_GRM(AbstractModel):
         encoder_hidden = self.drop(encoder_hidden)
         
         # Pass through encoder blocks with padding mask
-        encoder_hidden = encoder_hidden
         for block in self.encoder_blocks:
             # 传入 enc_key_mask，让 encoder 不看 padding 的 key
             encoder_hidden = block(encoder_hidden, attention_mask=enc_key_mask)
@@ -383,8 +396,12 @@ class AR_GRM(AbstractModel):
 
         # Teacher forcing inputs
         dec_gt = torch.clamp(batch['decoder_input_ids'].to(device), 0, self.codebook_size - 1)  # [B, n_digit]
-        labels = torch.clamp(batch['decoder_labels'].to(device), 0, self.codebook_size - 1)      # [B, n_digit]
-        B = dec_gt.size(0)
+        # 🚀 修复：保留 -100 原样，避免误训练为类别 0
+        # 备选方案：若担心脏数据，可用以下代码保留 -100，其它非负再 clamp
+        # _raw = batch['decoder_labels'].to(device)
+        # labels = torch.where(_raw >= 0, _raw.clamp(0, self.codebook_size - 1), _raw)
+        labels = batch['decoder_labels'].to(device)  # 保留 -100 用于 ignore_index
+        B_dec = dec_gt.size(0)  # 🚀 修复：避免变量名冲突，提升可读性
 
         # Convert codebook id -> token id per digit
         token_ids = []
@@ -395,13 +412,13 @@ class AR_GRM(AbstractModel):
         token_ids = torch.stack(token_ids, dim=1)  # [B, n_digit]
 
         tok_emb = self.embedding(token_ids)  # [B, n_digit, d]
-        bos = self.bos_embedding.unsqueeze(0).unsqueeze(1).expand(B, 1, -1)  # [B,1,d]
+        bos = self.bos_embedding.unsqueeze(0).unsqueeze(1).expand(B_dec, 1, -1)  # [B,1,d]
         dec_inp = torch.cat([bos, tok_emb], dim=1)  # [B, n_digit+1, d]
         dec_inp = self.drop(dec_inp)
 
         # Decoder with causal mask and cross-attn
         x = dec_inp
-        attn_mask = self._causal_mask(B, x.size(1), device) if self.use_causal_mask else None
+        attn_mask = self._causal_mask(B_dec, x.size(1), device) if self.use_causal_mask else None
         # 预计算 cross-KV（每层一次）
         encoder_kv_list = []
         for blk in self.decoder_blocks:
@@ -431,7 +448,8 @@ class AR_GRM(AbstractModel):
             logits_d = self._compute_digit_logits(x[:, d, :], digit=d)
             total_loss = total_loss + F.cross_entropy(
                 logits_d, labels[:, d], reduction='mean',
-                label_smoothing=self.config.get('label_smoothing', 0.0)
+                label_smoothing=self.config.get('label_smoothing', 0.0),
+                ignore_index=-100  # 🚀 修复：忽略未知商品的-100标签
             )
         total_loss = total_loss / self.n_digit
 
@@ -493,6 +511,7 @@ class AR_GRM(AbstractModel):
                 # 生成encoder的padding mask（与训练时一致）
                 history_sid = batch['history_sid'].to(encoder_hidden.device)
                 valid_k = history_sid.ne(0).any(dim=-1)
+                # 🚀 设计说明：使用 (B,1,1,S) 形状，表示"只屏蔽 Key 端"
                 enc_key_mask = valid_k[:, None, None, :]
 
                 # 预计算 cross-KV
