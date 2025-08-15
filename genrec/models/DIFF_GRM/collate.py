@@ -8,11 +8,12 @@ import torch
 from typing import Dict, List, Any
 
 
-def stack_to_tensor(seq):
-    """通用工具：将所有元素stack成tensor"""
+def stack_to_tensor(seq, dtype=None):
+    """通用工具：将所有元素stack成tensor；若传入dtype则做类型转换。"""
     if torch.is_tensor(seq[0]):
-        return torch.stack(seq, dim=0)
-    return torch.tensor(seq, dtype=torch.long)
+        out = torch.stack(seq, dim=0)
+        return out.to(dtype) if dtype is not None else out
+    return torch.tensor(seq, dtype=(dtype if dtype is not None else torch.long))
 
 
 def collate_fn_train(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
@@ -30,10 +31,10 @@ def collate_fn_train(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         批处理后的字典
     """
     return {
-        'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),  # [B, seq_len, n_digit]
-        'history_mask': torch.tensor([b['history_mask'] for b in batch], dtype=torch.bool),  # [B, seq_len]
-        'decoder_input_ids': stack_to_tensor([b['decoder_input_ids'] for b in batch]),  # [B, n_digit]
-        'decoder_labels': stack_to_tensor([b['decoder_labels'] for b in batch]),  # [B, n_digit]
+        'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),                      # [B, S, n_digit]
+        'history_mask': stack_to_tensor([b['history_mask'] for b in batch], dtype=torch.bool),  # [B, S]
+        'decoder_input_ids': stack_to_tensor([b['decoder_input_ids'] for b in batch]),          # [B, n_digit]
+        'decoder_labels': stack_to_tensor([b['decoder_labels'] for b in batch]),                # [B, n_digit]
     }
 
 
@@ -51,9 +52,9 @@ def collate_fn_val(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         批处理后的字典
     """
     return {
-        'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),  # [B, seq_len, n_digit]
-        'history_mask': torch.tensor([b['history_mask'] for b in batch], dtype=torch.bool),  # [B, seq_len]
-        'labels': stack_to_tensor([b['labels'] for b in batch]),  # [B, n_digit]
+        'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),
+        'history_mask': stack_to_tensor([b['history_mask'] for b in batch], dtype=torch.bool),
+        'labels': stack_to_tensor([b['labels'] for b in batch]),
     }
 
 
