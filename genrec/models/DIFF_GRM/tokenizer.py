@@ -526,16 +526,54 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         history_sid = []
         for item in item_seq:
             if item in self.item2tokens:
-                history_sid.append(list(self.item2tokens[item]))
+                # 将带offset的token ID转换为codebook ID (0..K-1)
+                tokens = list(self.item2tokens[item])  # 带offset的token ID
+                codebook_ids = []
+                for digit, token_id in enumerate(tokens):
+                    codebook_id = token_id - (self.sid_offset + digit * self.codebook_size)
+                    codebook_ids.append(codebook_id)
+                history_sid.append(codebook_ids)
             else:
-                # 未知商品用PAD填充
-                history_sid.append([self.pad_token] * self.n_digit)
+                # 未知商品用PAD填充（使用-1作为PAD的哨兵值，避免与codebook_id=0混淆）
+                history_sid.append([-1] * self.n_digit)
         
         # 填充到固定长度
         while len(history_sid) < max_len:
-            history_sid.append([self.pad_token] * self.n_digit)
+            history_sid.append([-1] * self.n_digit)
         
         return history_sid  # 返回list，让datasets.map自动张量化
+    
+    def encode_history_with_mask(self, item_seq, max_len=None):
+        """编码用户历史序列，同时返回padding mask"""
+        if max_len is None:
+            max_len = self.config.get('max_history_len', 50)
+        if len(item_seq) > max_len:
+            item_seq = item_seq[-max_len:]
+        
+        history_sid = []
+        history_mask = []  # True=有效位置，False=PAD位置
+        
+        for item in item_seq:
+            if item in self.item2tokens:
+                # 将带offset的token ID转换为codebook ID (0..K-1)
+                tokens = list(self.item2tokens[item])  # 带offset的token ID
+                codebook_ids = []
+                for digit, token_id in enumerate(tokens):
+                    codebook_id = token_id - (self.sid_offset + digit * self.codebook_size)
+                    codebook_ids.append(codebook_id)
+                history_sid.append(codebook_ids)
+                history_mask.append(True)  # 有效位置
+            else:
+                # 未知商品用PAD填充（使用-1作为PAD的哨兵值，避免与codebook_id=0混淆）
+                history_sid.append([-1] * self.n_digit)
+                history_mask.append(False)  # PAD位置
+        
+        # 填充到固定长度
+        while len(history_sid) < max_len:
+            history_sid.append([-1] * self.n_digit)
+            history_mask.append(False)  # PAD位置
+        
+        return history_sid, history_mask  # 返回list，让datasets.map自动张量化
 
     def encode_decoder_input(self, target_item):
         """编码decoder输入 - 与RPG_ED保持一致"""
@@ -594,13 +632,14 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
         target_item = item_seq[-1]  # 原始字符串
         
         # 修复：所有split都应该用item_seq[:-1]作为历史，避免数据泄露
-        history_sid = self.encode_history(item_seq[:-1])
+        history_sid, history_mask = self.encode_history_with_mask(item_seq[:-1])
         
         if split == 'train':
             # 训练时编码decoder输入
             decoder_input, decoder_labels = self.encode_decoder_input(target_item)
             return {
                 'history_sid': history_sid,  # 直接list
+                'history_mask': history_mask,  # 直接list
                 'decoder_input_ids': decoder_input,  # 直接list
                 'decoder_labels': decoder_labels  # 直接list
             }
@@ -609,6 +648,7 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
             _, decoder_labels = self.encode_decoder_input(target_item)
             return {
                 'history_sid': history_sid,  # 直接list
+                'history_mask': history_mask,  # 直接list
                 'labels': decoder_labels  # 新增：真标签序列
             }
 

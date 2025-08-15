@@ -22,6 +22,7 @@ def collate_fn_train(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     Args:
         batch: 包含以下字段的字典列表：
             - history_sid: 历史SID序列 [seq_len, n_digit]
+            - history_mask: 历史掩码 [seq_len]
             - decoder_input_ids: decoder输入 [n_digit]
             - decoder_labels: decoder标签 [n_digit]
     
@@ -30,6 +31,7 @@ def collate_fn_train(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     """
     return {
         'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),  # [B, seq_len, n_digit]
+        'history_mask': torch.tensor([b['history_mask'] for b in batch], dtype=torch.bool),  # [B, seq_len]
         'decoder_input_ids': stack_to_tensor([b['decoder_input_ids'] for b in batch]),  # [B, n_digit]
         'decoder_labels': stack_to_tensor([b['decoder_labels'] for b in batch]),  # [B, n_digit]
     }
@@ -42,6 +44,7 @@ def collate_fn_val(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     Args:
         batch: 包含以下字段的字典列表：
             - history_sid: 历史SID序列 [seq_len, n_digit]
+            - history_mask: 历史掩码 [seq_len]
             - labels: 真标签序列 [n_digit]
     
     Returns:
@@ -49,6 +52,7 @@ def collate_fn_val(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     """
     return {
         'history_sid': stack_to_tensor([b['history_sid'] for b in batch]),  # [B, seq_len, n_digit]
+        'history_mask': torch.tensor([b['history_mask'] for b in batch], dtype=torch.bool),  # [B, seq_len]
         'labels': stack_to_tensor([b['labels'] for b in batch]),  # [B, n_digit]
     }
 

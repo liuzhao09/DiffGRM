@@ -62,7 +62,7 @@ sequential_paths: 1           # 同一个样本并行多少条随机路径（仅
 
 # guided 置信度引导的连贯视图
 guided_steps: auto            # auto(=n_digit) 或 1~n_digit
-guided_conf_metric: top1      # top1 | entropy
+guided_conf_metric: msp       # msp | entropy
 guided_refresh_each_step: false  # 是否每步刷新一次置信度（true更准，false更快）
 guided_select: most           # most | least  (揭示最有把握/最不把握的位置)
 
