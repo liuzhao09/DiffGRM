@@ -392,6 +392,60 @@ class DIFF_GRM(AbstractModel):
             self.sampled_mask_prob = sampled_prob
             print(f"[MODEL] [Epoch-Resample] RANDOM masking prob resampled to {sampled_prob:.4f} (range [{low}, {high}]); augment_factor=1")
 
+    def set_masking_mode(self, strategy: str, **kw):
+        """
+        训练过程中的热切换：
+        - strategy: 'guided' | 'sequential' | 'random'
+        - kw: 对应策略需要的超参（见下）
+        """
+        self.masking_strategy = strategy
+
+        if strategy == 'sequential':
+            # steps
+            seq_cfg = kw.get('sequential_steps', self.config.get('sequential_steps', 'auto'))
+            self.seq_steps = self.n_digit if seq_cfg in (None, 'auto') else int(seq_cfg)
+            self.sequential_paths = int(kw.get('sequential_paths', self.config.get('sequential_paths', 1)))
+            self.augment_factor = self.seq_steps * self.sequential_paths
+            self.mask_probs = None
+            print(f"[SCHEDULE] → SEQUENTIAL: steps={self.seq_steps}, paths={self.sequential_paths}, augment_factor={self.augment_factor}")
+
+        elif strategy == 'guided':
+            guided_cfg = kw.get('guided_steps', self.config.get('guided_steps', 'auto'))
+            self.guided_steps = self.n_digit if guided_cfg in (None, 'auto') else int(guided_cfg)
+            self.guided_steps = min(self.guided_steps, self.n_digit, 4)
+            self.guided_conf_metric = kw.get('guided_conf_metric', self.config.get('guided_conf_metric', 'msp'))
+            self.guided_select = kw.get('guided_select', self.config.get('guided_select', 'least'))
+            # 注意：forward 里读 self.config['guided_refresh_each_step']，所以要同步回 config
+            self.config['guided_refresh_each_step'] = bool(kw.get(
+                'guided_refresh_each_step',
+                self.config.get('guided_refresh_each_step', False)
+            ))
+            self.augment_factor = self.guided_steps
+            self.mask_probs = None
+            print(f"[SCHEDULE] → GUIDED({self.guided_select}): steps={self.guided_steps}, metric={self.guided_conf_metric}, refresh={self.config['guided_refresh_each_step']}, augment_factor={self.augment_factor}")
+
+        elif strategy == 'random':
+            # 保留旧逻辑，按需覆盖
+            self.mask_prob_random = bool(kw.get('mask_prob_random', self.config.get('mask_prob_random', False)))
+            if self.mask_prob_random:
+                self.mask_probs = [float(np.random.uniform(
+                    float(kw.get('mask_prob_random_min', self.config.get('mask_prob_random_min', 0.0))),
+                    float(kw.get('mask_prob_random_max', self.config.get('mask_prob_random_max', 1.0)))
+                ))]
+                self.augment_factor = 1
+            else:
+                if 'mask_probs' in kw and kw['mask_probs'] is not None:
+                    self.mask_probs = [float(p) for p in (kw['mask_probs'] if isinstance(kw['mask_probs'], (list, tuple)) else str(kw['mask_probs']).split(','))]
+                    self.augment_factor = len(self.mask_probs)
+                else:
+                    mp = float(kw.get('mask_prob', self.config.get('mask_prob', 0.5)))
+                    af = int(kw.get('augment_factor', self.config.get('augment_factor', 4)))
+                    self.mask_probs = [mp] * af
+                    self.augment_factor = af
+            print(f"[SCHEDULE] → RANDOM: mask_probs={self.mask_probs}, augment_factor={self.augment_factor}")
+        else:
+            raise ValueError(f"Unknown masking strategy: {strategy}")
+
     def _compute_digit_logits(self, hidden_last, digit):
         """
         使用共享embedding的dot-product计算logits
