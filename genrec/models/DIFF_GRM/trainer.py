@@ -40,6 +40,20 @@ class DIFF_GRMTrainer:
         
         # 读取调度配置
         self.schedule_cfg = self.config.get('mask_schedule', {}) or {}
+        
+        # 处理字符串格式的配置（命令行参数传入的情况）
+        if isinstance(self.schedule_cfg, str):
+            try:
+                import json
+                self.schedule_cfg = json.loads(self.schedule_cfg)
+            except Exception:
+                try:
+                    import ast
+                    self.schedule_cfg = ast.literal_eval(self.schedule_cfg)
+                except Exception:
+                    print(f"[WARN] mask_schedule is a string but cannot be parsed: {self.schedule_cfg}. Disable schedule.")
+                    self.schedule_cfg = {}
+        
         self.schedule_enabled = bool(self.schedule_cfg.get('enabled', False))
 
     def fit(self, train_dataloader, val_dataloader):

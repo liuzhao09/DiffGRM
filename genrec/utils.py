@@ -394,13 +394,30 @@ def parse_command_line_args(unparsed: list[str]) -> dict:
     for text_arg in unparsed:
         if '=' not in text_arg:
             raise ValueError(f"Invalid command line argument: {text_arg}, please add '=' to separate key and value.")
-        key, value = text_arg.split('=')
+        key, value = text_arg.split('=', 1)  # 只分割第一个=，避免字典中的=被分割
         key = key[len('--'):]
+        
+        # 尝试解析值
+        parsed_value = value
         try:
-            value = eval(value)
+            # 首先尝试eval（适用于简单类型）
+            parsed_value = eval(value)
         except:
-            pass
-        args[key] = value
+            # 如果eval失败，尝试解析为字典字符串
+            try:
+                import json
+                # 尝试JSON解析
+                parsed_value = json.loads(value)
+            except:
+                try:
+                    import ast
+                    # 尝试ast.literal_eval（更安全）
+                    parsed_value = ast.literal_eval(value)
+                except:
+                    # 如果都失败，保持原始字符串
+                    pass
+        
+        args[key] = parsed_value
     return args
 
 

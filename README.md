@@ -77,8 +77,40 @@ Note that:
 ## Reproduction
 
 ### Sports and Outdoors
-
-
+CUDA_VISIBLE_DEVICES=1 python main.py \
+  --category=Sports_and_Outdoors \
+  --train_batch_size=1024 \
+  --model=DIFF_GRM \
+  --n_digit=4 \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=4 \
+  --n_embd=256 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --lr=0.003 \
+  --label_smoothing=0.1 \
+  --sid_quantizer=opq_pq \
+  --sent_emb_model=sentence-transformers/sentence-t5-base \
+  --sent_emb_dim=768 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true \
+  --mask_schedule='{
+      "enabled": true,
+      "least_epochs": 5,
+      "seq_steps": "auto",
+      "seq_paths": 1,
+      "switch_patience_eval": 5,
+      "eval_start_epoch_override": 1,
+      "eval_interval_override": 1,
+      "guided_steps": "auto",
+      "guided_conf_metric": "msp",
+      "guided_refresh_each_step": true
+  }' > runs/sports/schedule_least_seq_most_8_16_13.txt 2>&1 &
 ```
 CUDA_VISIBLE_DEVICES=0 python main.py \
   --category=Sports_and_Outdoors \
