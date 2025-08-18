@@ -56,6 +56,35 @@ class DIFF_GRMTrainer:
         
         self.schedule_enabled = bool(self.schedule_cfg.get('enabled', False))
 
+    # ===== 阶段式训练工具 =====
+    def _build_stage_plan(self):
+        """
+        优先读取 config['mask_schedule']['pipeline']，没有则返回空列表（保持旧行为）。
+        """
+        ms = self.schedule_cfg or {}
+        plan = []
+        if 'pipeline' in ms and ms['pipeline']:
+            for st in ms['pipeline']:
+                s = dict(st)  # 拷贝一份
+                assert 'strategy' in s, "Each stage in pipeline must have 'strategy'"
+                s.setdefault('epochs', -1)
+                plan.append(s)
+        return plan
+
+    def _apply_stage(self, stage_idx):
+        """切换到第 stage_idx 个阶段（调用模型的 set_masking_mode）"""
+        stage = self.stage_plan[stage_idx]
+        strat = stage['strategy']
+        kwargs = {k: v for k, v in stage.items() if k not in ('strategy', 'epochs')}
+        # 真正切换
+        self.model.set_masking_mode(strat, **kwargs)
+
+        self.cur_stage_idx = stage_idx
+        self.cur_stage_epochs_done = 0
+
+        if self.accelerator.is_main_process:
+            print(f"[SCHEDULE] >>> Enter Stage #{stage_idx+1}: {strat}, args={kwargs}")
+
     def fit(self, train_dataloader, val_dataloader):
         """
         训练模型 - 适配diffusion模式
@@ -96,41 +125,17 @@ class DIFF_GRMTrainer:
         best_epoch = 0
         best_val_score = -1
         
-        # ====== 阶段调度器 ======
-        def _apply_stage(stage_name: str):
-            if stage_name == 'least':
-                self.model.set_masking_mode(
-                    'guided',
-                    guided_select='least',
-                    guided_steps=self.schedule_cfg.get('guided_steps', self.config.get('guided_steps', 'auto')),
-                    guided_conf_metric=self.schedule_cfg.get('guided_conf_metric', self.config.get('guided_conf_metric', 'msp')),
-                    guided_refresh_each_step=self.schedule_cfg.get('guided_refresh_each_step', self.config.get('guided_refresh_each_step', False)),
-                )
-            elif stage_name == 'sequential':
-                self.model.set_masking_mode(
-                    'sequential',
-                    sequential_steps=self.schedule_cfg.get('seq_steps', self.config.get('sequential_steps', 'auto')),
-                    sequential_paths=self.schedule_cfg.get('seq_paths', self.config.get('sequential_paths', 1)),
-                )
-            elif stage_name == 'most':
-                self.model.set_masking_mode(
-                    'guided',
-                    guided_select='most',
-                    guided_steps=self.schedule_cfg.get('guided_steps', self.config.get('guided_steps', 'auto')),
-                    guided_conf_metric=self.schedule_cfg.get('guided_conf_metric', self.config.get('guided_conf_metric', 'msp')),
-                    guided_refresh_each_step=self.schedule_cfg.get('guided_refresh_each_step', self.config.get('guided_refresh_each_step', False)),
-                )
-            else:
-                raise ValueError(f"Unknown stage: {stage_name}")
-            if self.accelerator.is_main_process:
-                print(f"[SCHEDULE] >>> Enter stage: {stage_name}")
-
-        # 调度状态
-        cur_stage = 'least' if self.schedule_enabled else None
-        stage_epoch_run = 0                   # 当前阶段已跑 epoch 数（用于 least 固定5个epoch）
-        stage_no_improve_eval = 0             # 当前阶段连续"评估无提升"的计数
-        if self.schedule_enabled:
-            _apply_stage(cur_stage)
+        # ===== 初始化阶段式训练 =====
+        self.stage_plan = self._build_stage_plan()
+        self.cur_stage_idx = 0
+        self.cur_stage_epochs_done = 0
+        if self.schedule_cfg.get('enabled', False) and self.stage_plan:
+            # 可选：覆盖评估频率，便于观察阶段切换
+            if self.schedule_cfg.get('eval_start_epoch_override') is not None:
+                self.config['eval_start_epoch'] = int(self.schedule_cfg['eval_start_epoch_override'])
+            if self.schedule_cfg.get('eval_interval_override') is not None:
+                self.config['eval_interval'] = int(self.schedule_cfg['eval_interval_override'])
+            self._apply_stage(0)
         
         # 新增：跟踪评估次数和无提升的评估次数
         eval_count = 0
@@ -146,8 +151,9 @@ class DIFF_GRMTrainer:
         use_global_early_stop = (self.config.get('patience', None) is not None) and (not self.schedule_enabled)
         
         self.log(f'[TRAINING] Evaluation config: start from epoch {eval_start_epoch}, interval: {eval_interval}')
-        if self.schedule_enabled:
-            self.log(f'[TRAINING] Auto schedule enabled: {cur_stage} → sequential → most')
+        if self.schedule_enabled and self.stage_plan:
+            stage_names = [stage['strategy'] for stage in self.stage_plan]
+            self.log(f'[TRAINING] Auto schedule enabled: {" → ".join(stage_names)}')
 
         for epoch in range(n_epochs):
             # Training
@@ -197,7 +203,6 @@ class DIFF_GRMTrainer:
                 if improved:
                     best_val_score = val_score
                     best_epoch = epoch + 1
-                    stage_no_improve_eval = 0  # 关键：阶段内无提升计数清零
                     if self.accelerator.is_main_process:
                         if self.config['use_ddp']:
                             unwrapped_model = self.accelerator.unwrap_model(self.model)
@@ -206,28 +211,12 @@ class DIFF_GRMTrainer:
                             torch.save(self.model.state_dict(), self.saved_model_ckpt)
                         self.log(f'[Epoch {epoch + 1}] 🎉 New best score! Saved model checkpoint to {self.saved_model_ckpt}')
                 else:
-                    stage_no_improve_eval += 1
                     if self.accelerator.is_main_process:
-                        self.log(f'[Epoch {epoch + 1}] No improvement in current stage for {stage_no_improve_eval}/{self.schedule_cfg.get("switch_patience_eval", 5)} evaluations')
+                        self.log(f'[Epoch {epoch + 1}] No improvement in current evaluation')
 
                 # === 阶段调度：切换/终止 ===
-                if self.schedule_enabled:
-                    # 阶段1：guided-least，固定跑 N 个 epoch，评估只用于保存最优，不触发切换
-                    if cur_stage == 'least':
-                        pass  # 固定跑，见下方"epoch结束"处按 least_epochs 切
-
-                    # 阶段2：sequential，连续 N 次评估无提升 → 切到 most
-                    elif cur_stage == 'sequential':
-                        if stage_no_improve_eval >= int(self.schedule_cfg.get('switch_patience_eval', 5)):
-                            cur_stage = 'most'
-                            stage_no_improve_eval = 0
-                            _apply_stage(cur_stage)
-
-                    # 阶段3：guided-most，连续 N 次评估无提升 → 训练结束
-                    elif cur_stage == 'most':
-                        if stage_no_improve_eval >= int(self.schedule_cfg.get('switch_patience_eval', 5)):
-                            self.log(f'🛑 Stage "most" reached {stage_no_improve_eval} no-improve evaluations, stopping training.')
-                            break
+                # 新的管线调度逻辑：按epoch数切换，不使用评估无提升
+                pass
 
                 # === 全局早停（仅在未启用调度时生效，保持旧逻辑） ===
                 if (not self.schedule_enabled) and use_global_early_stop:
@@ -241,15 +230,14 @@ class DIFF_GRMTrainer:
                         self.log(f'🛑 Early stopping at epoch {epoch + 1} (after {eval_count} evaluations, {no_improve_count} without improvement)')
                         break
 
-            # === 统计当前阶段已跑的 epoch 数，并处理 least→sequential 的固定切换 ===
-            if self.schedule_enabled:
-                stage_epoch_run += 1
-                if cur_stage == 'least':
-                    if stage_epoch_run >= int(self.schedule_cfg.get('least_epochs', 5)):
-                        cur_stage = 'sequential'
-                        stage_epoch_run = 0
-                        stage_no_improve_eval = 0
-                        _apply_stage(cur_stage)
+            # ===== 阶段推进 =====
+            if self.schedule_cfg.get('enabled', False) and self.stage_plan:
+                self.cur_stage_epochs_done += 1
+                cur_stage = self.stage_plan[self.cur_stage_idx]
+                need_switch = (cur_stage.get('epochs', -1) > 0 and
+                               self.cur_stage_epochs_done >= int(cur_stage['epochs']))
+                if need_switch and (self.cur_stage_idx + 1) < len(self.stage_plan):
+                    self._apply_stage(self.cur_stage_idx + 1)
                     
         self.log(f'Best epoch: {best_epoch}, Best val score: {best_val_score:.4f}')
         self.log(f'Training completed after {eval_count} evaluations (eval every {eval_interval} epochs)')

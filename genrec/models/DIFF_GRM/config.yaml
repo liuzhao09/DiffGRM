@@ -124,29 +124,29 @@ label_smoothing: 0.1
 # Evaluation
 eval_interval: 1  # 每xx轮评估一次，而不是每轮都评估
 eval_start_epoch: 20  # 从第xx个epoch开始评估
-patience: 10       # xx次评估无提升就早停
+patience: 15       # xx次评估无提升就早停
 topk: [5,10]
 metrics: [ndcg,recall]
 val_metric: weighted_score  # 使用加权综合指标：weighted_score = 0.8 * ndcg_10 + 0.2 * recall_10
 
 # ── Auto mask schedule (off by default) ───────────────────────────
 mask_schedule:
-  enabled: false            # ← 这就是你说的"按钮"
-  # 阶段1：guided-least 固定跑 N 个 epoch 然后切到 sequential
-  least_epochs: 5
+  enabled: false
 
-  # 阶段2：sequential 的参数（可控"连贯视图"）
-  seq_steps: auto           # auto(=n_digit) 或整数 1~n_digit
-  seq_paths: 1              # 同一样本并行的随机路径数
+  # 显式两阶段管线：Stage-1 随机 sequential；Stage-2 guided(least)
+  pipeline:
+    - strategy: sequential
+      sequential_steps: auto      # = n_digit；若你想更少，写具体数，如 3
+      sequential_paths: 2         # 👈 可控，1~N（越大显存越高）
+      epochs: 10                  # 跑 10 个 epoch 后自动切换
 
-  # 阶段2/3：若连续 N 次"评估无提升"则切换到下一阶段
-  switch_patience_eval: 5   # 这里按"评估次数"数，不是按 epoch
+    - strategy: guided
+      guided_select: least        # 👈 只要 least，不要 most
+      guided_steps: auto          # = n_digit（或填具体数）
+      guided_conf_metric: msp     # 或 entropy
+      guided_refresh_each_step: false
+      epochs: -1                  # -1 = 直到训练结束/早停
 
   # 建议把评估频率拉高，便于快速判断"无提升"
   eval_start_epoch_override: 1  # 开启日程时，评估从第1个epoch就开始
   eval_interval_override: 1     # 每个epoch评估一次
-
-  # guided 共有参数（两个 guided 阶段都会用到）
-  guided_steps: auto
-  guided_conf_metric: msp        # msp | entropy
-  guided_refresh_each_step: false

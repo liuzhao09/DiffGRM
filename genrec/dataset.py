@@ -129,7 +129,7 @@ class AbstractDataset:
     def _sliding_train(self, min_hist=2, max_hist=50):
         """
         只扩充 train，val / test 仍保持 leave-one-out。
-        修复数据泄露问题：确保训练样本的label不会出现在val和test的历史中
+        确保训练样本的label不会出现在val和test的历史中
         
         Args:
             min_hist (int): 滑窗最短history长度（含label前的序列长度）
@@ -154,7 +154,7 @@ class AbstractDataset:
                 datasets['val']['user'].append(user)
                 datasets['val']['item_seq'].append(seq[:-1])
 
-            # train: 滑窗（无泄露版）
+            # train: 滑窗
             if L > 2:  # 至少需要3个item才能生成训练样本
                 # 关键修复：hi_max只能到L-3，确保label ≤ L-3
                 # val和test的历史都是seq[:-1]（0...L-2）
