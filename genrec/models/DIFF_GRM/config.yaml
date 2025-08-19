@@ -125,6 +125,7 @@ label_smoothing: 0.1
 eval_interval: 1  # 每xx轮评估一次，而不是每轮都评估
 eval_start_epoch: 20  # 从第xx个epoch开始评估
 patience: 15       # xx次评估无提升就早停
+min_delta: 0.0     # 提升至少超过这个值才算improve
 topk: [5,10]
 metrics: [ndcg,recall]
 val_metric: weighted_score  # 使用加权综合指标：weighted_score = 0.8 * ndcg_10 + 0.2 * recall_10
@@ -148,5 +149,5 @@ mask_schedule:
       epochs: -1                  # -1 = 直到训练结束/早停
 
   # 建议把评估频率拉高，便于快速判断"无提升"
-  eval_start_epoch_override: 1  # 开启日程时，评估从第1个epoch就开始
+  eval_start_epoch_override: 5  # 开启日程时，评估从第1个epoch就开始
   eval_interval_override: 1     # 每个epoch评估一次

@@ -123,7 +123,7 @@ class DIFF_GRMTrainer:
 
         n_epochs = np.ceil(total_n_steps / (len(train_dataloader) * self.accelerator.num_processes)).astype(int)
         best_epoch = 0
-        best_val_score = -1
+        best_val_score = -float("inf")  # 更鲁棒，避免指标可能为负数时被 -1 卡住
         
         # ===== 初始化阶段式训练 =====
         self.stage_plan = self._build_stage_plan()
@@ -147,8 +147,9 @@ class DIFF_GRMTrainer:
         eval_interval = self.schedule_cfg.get('eval_interval_override', self.config['eval_interval']) \
                         if self.schedule_enabled else self.config['eval_interval']
 
-        # 若启用调度，禁用全局 early stopping（由阶段内的 switch_patience_eval 接管）
-        use_global_early_stop = (self.config.get('patience', None) is not None) and (not self.schedule_enabled)
+        # 全局早停：无论是否启用调度都生效
+        use_global_early_stop = int(self.config.get('patience', 0) or 0) > 0
+        min_delta = float(self.config.get('min_delta', 0.0))
         
         self.log(f'[TRAINING] Evaluation config: start from epoch {eval_start_epoch}, interval: {eval_interval}')
         if self.schedule_enabled and self.stage_plan:
@@ -199,12 +200,12 @@ class DIFF_GRMTrainer:
 
                 # === 保存最优 & 统计是否提升 ===
                 val_score = all_results[self.config['val_metric']]
-                improved = val_score > best_val_score
+                improved = val_score > (best_val_score + min_delta)
                 if improved:
                     best_val_score = val_score
                     best_epoch = epoch + 1
                     if self.accelerator.is_main_process:
-                        if self.config['use_ddp']:
+                        if self.config.get('use_ddp', False):  # 避免没配该键时报 KeyError
                             unwrapped_model = self.accelerator.unwrap_model(self.model)
                             torch.save(unwrapped_model.state_dict(), self.saved_model_ckpt)
                         else:
@@ -218,16 +219,16 @@ class DIFF_GRMTrainer:
                 # 新的管线调度逻辑：按epoch数切换，不使用评估无提升
                 pass
 
-                # === 全局早停（仅在未启用调度时生效，保持旧逻辑） ===
-                if (not self.schedule_enabled) and use_global_early_stop:
+                # === 全局早停（无论是否启用调度都生效） ===
+                if use_global_early_stop:
                     if improved:
                         no_improve_count = 0
                     else:
                         no_improve_count += 1
                         if self.accelerator.is_main_process:
-                            self.log(f'[Epoch {epoch + 1}] No improvement for {no_improve_count}/{self.config["patience"]} evaluations')
-                    if self.config['patience'] is not None and no_improve_count >= self.config['patience']:
-                        self.log(f'🛑 Early stopping at epoch {epoch + 1} (after {eval_count} evaluations, {no_improve_count} without improvement)')
+                            self.log(f'[Epoch {epoch + 1}] No improvement for {no_improve_count}/{self.config["patience"]} evaluations (min_delta={min_delta})')
+                    if no_improve_count >= int(self.config["patience"]):
+                        self.log(f'🛑 Early stopping at epoch {epoch + 1} (after {eval_count} evaluations)')
                         break
 
             # ===== 阶段推进 =====
