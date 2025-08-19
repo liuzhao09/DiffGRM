@@ -13,6 +13,12 @@ from genrec.dataset import AbstractDataset
 from genrec.tokenizer import AbstractTokenizer
 
 
+def make_norm(norm_type: str, dim: int, eps: float):
+    if (norm_type or "layernorm").lower() == "rmsnorm":
+        return nn.RMSNorm(dim, eps=eps)
+    return nn.LayerNorm(dim, eps=eps)
+
+
 class MultiHeadAttention(nn.Module):
 
     def __init__(self, emb_dim, n_head, attn_drop=0.1, resid_drop=0.1):
@@ -108,11 +114,11 @@ class FeedForward(nn.Module):
 class EncoderBlock(nn.Module):
 
     def __init__(self, emb_dim, n_head, n_inner, attn_drop=0.1, resid_drop=0.1, 
-                 act='gelu', layer_norm_epsilon=1e-5):
+                 act='gelu', norm_type='layernorm', norm_eps=1e-6):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(emb_dim, eps=layer_norm_epsilon)
+        self.ln_1 = make_norm(norm_type, emb_dim, norm_eps)
         self.attn = MultiHeadAttention(emb_dim, n_head, attn_drop, resid_drop)
-        self.ln_2 = nn.LayerNorm(emb_dim, eps=layer_norm_epsilon)
+        self.ln_2 = make_norm(norm_type, emb_dim, norm_eps)
         self.mlp = FeedForward(emb_dim, n_inner, resid_drop, act)
 
     def forward(self, x, attention_mask=None):
@@ -128,13 +134,13 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(nn.Module):
 
     def __init__(self, emb_dim, n_head, n_inner, attn_drop=0.1, resid_drop=0.1, 
-                 act='gelu', layer_norm_epsilon=1e-5):
+                 act='gelu', norm_type='layernorm', norm_eps=1e-6):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(emb_dim, eps=layer_norm_epsilon)
+        self.ln_1 = make_norm(norm_type, emb_dim, norm_eps)
         self.self_attn = MultiHeadAttention(emb_dim, n_head, attn_drop, resid_drop)
-        self.ln_2 = nn.LayerNorm(emb_dim, eps=layer_norm_epsilon)
+        self.ln_2 = make_norm(norm_type, emb_dim, norm_eps)
         self.cross_attn = MultiHeadAttention(emb_dim, n_head, attn_drop, resid_drop)
-        self.ln_3 = nn.LayerNorm(emb_dim, eps=layer_norm_epsilon)
+        self.ln_3 = make_norm(norm_type, emb_dim, norm_eps)
         self.mlp = FeedForward(emb_dim, n_inner, resid_drop, act)
 
     def forward(self, x, encoder_hidden=None, attention_mask=None, 
@@ -223,6 +229,10 @@ class DIFF_GRM(AbstractModel):
         # Encoder layers
         self.encoder_n_layer = config['encoder_n_layer']
         self.decoder_n_layer = config['decoder_n_layer']
+        
+        # Normalization configuration
+        self.norm_type = (config.get('norm_type', 'layernorm') or 'layernorm').lower()
+        self.norm_eps  = float(config.get('norm_eps', 1e-6 if self.norm_type=='rmsnorm' else 1e-5))
         
         # ==== 读取新策略 ====
         self.masking_strategy = config.get('masking_strategy', 'random')  # random | sequential
@@ -340,7 +350,9 @@ class DIFF_GRM(AbstractModel):
         self.encoder_blocks = nn.ModuleList([
             EncoderBlock(
                 self.n_embd, self.n_head, self.n_inner,
-                config['attn_pdrop'], config['resid_pdrop']
+                config['attn_pdrop'], config['resid_pdrop'],
+                act='gelu',
+                norm_type=self.norm_type, norm_eps=self.norm_eps
             )
             for _ in range(self.encoder_n_layer)
         ])
@@ -349,13 +361,15 @@ class DIFF_GRM(AbstractModel):
         self.decoder_blocks = nn.ModuleList([
             DecoderBlock(
                 self.n_embd, self.n_head, self.n_inner,
-                config['attn_pdrop'], config['resid_pdrop']
+                config['attn_pdrop'], config['resid_pdrop'],
+                act='gelu',
+                norm_type=self.norm_type, norm_eps=self.norm_eps
             )
             for _ in range(self.decoder_n_layer)
         ])
         
         # Layer normalization
-        self.ln_f = nn.LayerNorm(self.n_embd)
+        self.ln_f = make_norm(self.norm_type, self.n_embd, self.norm_eps)
         
         # -- 1.1 删除旧的独立 heads，改为共享 embedding dot-product --
         share_out = self.config.get('share_decoder_output_embedding', True)
@@ -1034,7 +1048,10 @@ class DIFF_GRM(AbstractModel):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.LayerNorm):
-            torch.nn.init.zeros_(module.bias)
-            torch.nn.init.ones_(module.weight)
+        elif isinstance(module, (nn.LayerNorm, nn.RMSNorm)):
+            # LN: 有 bias；RMSNorm: 只有 weight（无 bias）
+            if hasattr(module, "bias") and module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+            if hasattr(module, "weight") and module.weight is not None:
+                torch.nn.init.ones_(module.weight)
         # 注意：output_adapter如果是Identity()，不需要初始化 

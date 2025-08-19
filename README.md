@@ -76,6 +76,33 @@ Note that:
 
 ## Reproduction
 
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --category=Sports_and_Outdoors \
+  --train_batch_size=1024 \
+  --model=DIFF_GRM \
+  --n_digit=4 \
+  --masking_strategy=sequential \
+  --sequential_paths=8 \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=4 \
+  --n_embd=256 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --eval_start_epoch=20 \
+  --lr=0.003 \
+  --label_smoothing=0.1 \
+  --norm_type=rmsnorm \
+  --norm_eps=1e-6 \
+  --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
+  --sent_emb_dim=1024 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true > runs/sports/4layer_gtepca256_8seq_2e4d_256dim_8_19_14.txt 2>&1 &
+
 ### Sports and Outdoors
 CUDA_VISIBLE_DEVICES=1 python main.py \
   --category=Sports_and_Outdoors \

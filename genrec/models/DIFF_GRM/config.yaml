@@ -17,6 +17,10 @@ embd_pdrop: 0.1
 attn_pdrop: 0.1
 resid_pdrop: 0.1
 
+# Normalization
+norm_type: layernorm    # 可选: layernorm | rmsnorm
+norm_eps: 1e-5          # 建议: RMSNorm=1e-6, LayerNorm=1e-5
+
 # Output Layer Configuration
 share_decoder_output_embedding: true   # 使用共享embedding dot-product，false时回退到独立Linear
 
