@@ -76,32 +76,7 @@ Note that:
 
 ## Reproduction
 
-CUDA_VISIBLE_DEVICES=0 python main.py \
-  --category=Sports_and_Outdoors \
-  --train_batch_size=1024 \
-  --model=DIFF_GRM \
-  --n_digit=4 \
-  --masking_strategy=sequential \
-  --sequential_paths=8 \
-  --encoder_n_layer=2 \
-  --decoder_n_layer=4 \
-  --n_head=4 \
-  --n_embd=256 \
-  --n_inner=1024 \
-  --train_sliding=true \
-  --min_hist_len=2 \
-  --eval_start_epoch=20 \
-  --lr=0.003 \
-  --label_smoothing=0.1 \
-  --norm_type=rmsnorm \
-  --norm_eps=1e-6 \
-  --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
-  --sent_emb_dim=1024 \
-  --sent_emb_pca=256 \
-  --sent_emb_batch_size=256 \
-  --normalize_after_pca=true \
-  --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/sports/4layer_gtepca256_8seq_2e4d_256dim_8_19_14.txt 2>&1 &
+
 
 ### Sports and Outdoors
 CUDA_VISIBLE_DEVICES=1 python main.py \
@@ -300,6 +275,8 @@ CUDA_VISIBLE_DEVICES=3 python main.py \
 
 ### Toys and Games
 
+
+
 ```
 CUDA_VISIBLE_DEVICES=1 python main.py \
   --category=Toys_and_Games \
@@ -361,31 +338,6 @@ CUDA_VISIBLE_DEVICES=2 python main.py \
 ### CDs and Vinyl
 
 ```
-CUDA_VISIBLE_DEVICES=0 python main.py \
-    --category=CDs_and_Vinyl \
-    --train_batch_size=256 \
-    --model=DIFF_GRM \
-    --n_digit=4 \
-    --masking_strategy=sequential \
-    --sequential_paths=1 \
-    --encoder_n_layer=2 \
-    --decoder_n_layer=4 \
-    --n_head=4 \
-    --n_embd=256 \
-    --n_inner=1024 \
-    --train_sliding=true \
-    --min_hist_len=2 \
-    --eval_start_epoch=30 \
-    --lr=0.001 \
-    --label_smoothing=0.1 \
-    --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
-    --sent_emb_dim=1024 \
-    --sent_emb_pca=256 \
-    --sent_emb_batch_size=64 \
-    --normalize_after_pca=true \
-    --force_regenerate_opq=true \
-    --share_decoder_output_embedding=true > runs/cds/4layer_gtepca256_1sequential_2e4d_256dim_diff_8_11_20.txt 2>&1 &
-```
 
 AR_GRM（自回归对照实验）
 
@@ -415,6 +367,34 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --share_decoder_output_embedding=true > runs/cds/ar_grm_4layer_bgepca256_2e4d_256dim.txt 2>&1 &
 ```
 
+CUDA_VISIBLE_DEVICES=0 python main.py \
+  --category=Toys_and_Games \
+  --train_batch_size=1024 \
+  --model=DIFF_GRM \
+  --n_digit=4 \
+  --masking_strategy=guided \
+  --guided_refresh_each_step=false \
+  --guided_select=least \
+  --guided_conf_metric=msp \
+  --encoder_n_layer=2 \
+  --decoder_n_layer=4 \
+  --n_head=4 \
+  --n_embd=512 \
+  --n_inner=1024 \
+  --train_sliding=true \
+  --min_hist_len=2 \
+  --eval_start_epoch=10 \
+  --lr=0.003 \
+  --label_smoothing=0.20 \
+  --norm_type=rmsnorm \
+  --norm_eps=1e-6 \
+  --sent_emb_model="Alibaba-NLP/gte-large-en-v1.5" \
+  --sent_emb_dim=1024 \
+  --sent_emb_pca=256 \
+  --sent_emb_batch_size=256 \
+  --normalize_after_pca=true \
+  --force_regenerate_opq=true \
+  --share_decoder_output_embedding=true > runs/toys/4layer_ls020_tgepca256_guided_least_0_msp_2e4d_1024dim_8_22_10.txt 2>&1 &
 
 
 

@@ -282,17 +282,34 @@ def convert_config_dict(config: dict) -> dict:
         v = config[key]
         if not isinstance(v, str):
             continue
+        
+        # 🚀 修复：移除eval，使用安全的解析方法
         try:
-            new_v = eval(v)
+            # 首先检查布尔值
+            if v.lower() in ['true', 'false']:
+                config[key] = (v.lower() == 'true')
+                continue
+            
+            # 尝试JSON解析（最安全、可嵌套）
+            import json
+            new_v = json.loads(v)
             if new_v is not None and not isinstance(
                 new_v, (str, int, float, bool, list, dict, tuple)
             ):
                 new_v = v
-        except (NameError, SyntaxError, TypeError):
-            if isinstance(v, str) and v.lower() in ['true', 'false']:
-                new_v = (v.lower() == 'true')
-            else:
+        except Exception:
+            try:
+                # 再尝试ast.literal_eval（仅字面量）
+                import ast
+                new_v = ast.literal_eval(v)
+                if new_v is not None and not isinstance(
+                    new_v, (str, int, float, bool, list, dict, tuple)
+                ):
+                    new_v = v
+            except Exception:
+                # 如果都失败，保持原始字符串
                 new_v = v
+        
         config[key] = new_v
     return config
 
@@ -397,25 +414,20 @@ def parse_command_line_args(unparsed: list[str]) -> dict:
         key, value = text_arg.split('=', 1)  # 只分割第一个=，避免字典中的=被分割
         key = key[len('--'):]
         
-        # 尝试解析值
+        # 🚀 修复：移除eval，使用安全的解析方法
         parsed_value = value
         try:
-            # 首先尝试eval（适用于简单类型）
-            parsed_value = eval(value)
-        except:
-            # 如果eval失败，尝试解析为字典字符串
+            # 首先尝试JSON解析（最安全、可嵌套）
+            import json
+            parsed_value = json.loads(value)
+        except Exception:
             try:
-                import json
-                # 尝试JSON解析
-                parsed_value = json.loads(value)
-            except:
-                try:
-                    import ast
-                    # 尝试ast.literal_eval（更安全）
-                    parsed_value = ast.literal_eval(value)
-                except:
-                    # 如果都失败，保持原始字符串
-                    pass
+                # 再尝试ast.literal_eval（仅字面量）
+                import ast
+                parsed_value = ast.literal_eval(value)
+            except Exception:
+                # 如果都失败，保持原始字符串
+                pass
         
         args[key] = parsed_value
     return args

@@ -112,10 +112,11 @@ class AmazonReviews2014(AbstractDataset):
         Yields:
             object: Each line of the gzipped file, parsed as a dict.
         """
-        g = gzip.open(path, 'r')
-        for l in g:
-            l = l.replace(b'true', b'True').replace(b'false', b'False')
-            yield eval(l)
+        # 🚀 修复：直接使用JSON解析，Amazon数据是JSONL格式
+        import json
+        with gzip.open(path, 'rt', encoding='utf-8') as g:
+            for line in g:
+                yield json.loads(line)
 
     def _load_reviews(self, path: str) -> list:
         """
@@ -378,7 +379,7 @@ class AmazonReviews2014(AbstractDataset):
         )
         if process_mode == 'raw':
             pass
-        if process_mode == 'sentence':
+        elif process_mode == 'sentence':
             # Extract sentences from metadata
             item2meta = self._extract_meta_sentences(metadata=item2meta)
         else:

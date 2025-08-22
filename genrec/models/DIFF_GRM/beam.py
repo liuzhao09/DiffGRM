@@ -52,26 +52,40 @@ def _beam_step_select(mode,
 
         # top-p (nucleus) 采样
         top_p = rand_cfg.get("top_p")
-        if top_p is not None:
-            sorted_logits, _ = torch.sort(logits, descending=True, dim=-1)
-            cumsum_probs = torch.cumsum(sorted_logits.softmax(-1), dim=-1)
-            mask = cumsum_probs > top_p
-            # 把不在 nucleus 的 logits 置 -inf
-            first_mask = mask[..., 0:1].expand_as(mask)
-            nucleus_mask = torch.where(mask, first_mask, mask)
-            logits = torch.where(nucleus_mask, logits.new_full((), -1e9), logits)
+        if top_p is not None and 0.0 < top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+            sorted_probs = torch.softmax(sorted_logits, dim=-1)
+            cumsum_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            # 去掉超过阈值的以及其后的 token（保留至少一个）
+            sorted_indices_to_remove = cumsum_probs > top_p
+            # 把第一个位置强制保留（避免全部被去掉）
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+            sorted_indices_to_remove[..., 0] = False
+
+            # 还原回原顺序的布尔掩码
+            indices_to_remove = torch.zeros_like(logits, dtype=torch.bool)
+            indices_to_remove.scatter_(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
+
+            logits = logits.masked_fill(indices_to_remove, float('-inf'))
 
         probs = torch.softmax(logits, dim=-1)                   # 真概率
         flat_prob = probs.view(B, -1)
 
-        # 固定 seed（可选）
-        seed = rand_cfg.get("seed")
-        if seed is not None:
-            torch.manual_seed(seed)
+        # 🚀 修复：保存当前随机种子状态，避免污染训练
+        original_state = torch.get_rng_state()
+        try:
+            # 固定 seed（可选）
+            seed = rand_cfg.get("seed")
+            if seed is not None:
+                torch.manual_seed(seed)
 
-        flat_idx = torch.multinomial(flat_prob, beam_act, replacement=False)  # [B, act]
-        idx_rows = torch.arange(B, device=flat_idx.device).unsqueeze(1)
-        best_lp  = logits.view(B, -1)[idx_rows, flat_idx]        # 对应 logP
+            flat_idx = torch.multinomial(flat_prob, beam_act, replacement=False)  # [B, act]
+            idx_rows = torch.arange(B, device=flat_idx.device).unsqueeze(1)
+            best_lp  = logits.view(B, -1)[idx_rows, flat_idx]        # 对应 logP
+        finally:
+            # 🚀 恢复原始随机种子状态
+            torch.set_rng_state(original_state)
     # -------------------------------------------------------------------------
 
     parent   = flat_idx // (n_digit * VOC)
@@ -180,12 +194,18 @@ def iterative_mask_decode(model, encoder_hidden, n_return_sequences=1, tokenizer
     # ---------- ② 随机一次列顺序（仅random模式） ----------
     decode_order = None
     if mode == "random":
-        seed = model.config.get("random_beam", {}).get("seed")
-        if seed is not None:
-            torch.manual_seed(seed)
-        decode_order = torch.randperm(n_digit).tolist()      # e.g. [1,5,3,7,0,2,6,4]
-        if batch_size == 1:  # 只在单样本时打印，避免多worker刷屏
-            print(f"[RANDOM_BEAM] 🎲 Decode order: {decode_order}")
+        # 🚀 修复：保存当前随机种子状态，避免污染训练
+        original_state = torch.get_rng_state()
+        try:
+            seed = model.config.get("random_beam", {}).get("seed")
+            if seed is not None:
+                torch.manual_seed(seed)
+            decode_order = torch.randperm(n_digit).tolist()      # e.g. [1,5,3,7,0,2,6,4]
+            if batch_size == 1:  # 只在单样本时打印，避免多worker刷屏
+                print(f"[RANDOM_BEAM] 🎲 Decode order: {decode_order}")
+        finally:
+            # 🚀 恢复原始随机种子状态
+            torch.set_rng_state(original_state)
     
     # 常量
     MASK_ID = tokenizer.mask_token if tokenizer is not None else -1
