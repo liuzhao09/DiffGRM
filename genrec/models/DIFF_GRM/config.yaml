@@ -120,7 +120,7 @@ eval_batch_size: 32
 lr: 0.003
 weight_decay: 0.0
 warmup_steps: 10000
-epochs: 100
+epochs: 200
 max_grad_norm: 1.0
 label_smoothing: 0.1
 

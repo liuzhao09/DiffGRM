@@ -77,7 +77,6 @@ Note that:
 ## Reproduction
 
 
-
 ### Sports and Outdoors
 CUDA_VISIBLE_DEVICES=1 python main.py \
   --category=Sports_and_Outdoors \
