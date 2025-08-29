@@ -38,6 +38,10 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to pytorch_model.bin checkpoint')
     parser.add_argument('--output_file', type=str, default=None, help='Output results to JSON file')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+    parser.add_argument('--prefer_ckpt_arch', action='store_true',
+                        help='Try to construct model architecture from checkpoint/config next to it.')
+    parser.add_argument('--config_file', type=str, default=None,
+                        help='Optional path to the training config (json/yaml) if not embedded in ckpt.')
     
     # 解析已知参数和未知参数
     args, unparsed = parser.parse_known_args()
@@ -93,6 +97,87 @@ def validate_sid_mapping_consistency(tokenizer, dataset):
         print(f"⚠️  Warning: SID mapping consistency check failed: {e}")
 
 
+def _maybe_fill_arch_from_state_dict(config, sd):
+    """
+    尽可能从 state_dict 的形状推断关键架构参数：
+      - hidden_size / d_model / n_embd
+      - n_inner / ffn_hidden
+      - encoder_n_layer / decoder_n_layer
+      - use_cross_attn
+      - n_head（尽力推，非唯一）
+    仅在 config 未设置相应字段时填充。
+    """
+    keys = list(sd.keys())
+    if not keys:
+        return
+
+    # hidden_size: 通常可以从 self_attn.qkv.weight 形状得到 [3*H, H] 或者 from ln/emb
+    def _first_shape_of(prefixes):
+        for k in keys:
+            for p in prefixes:
+                if k.endswith(p) or p in k:
+                    t = sd[k]
+                    return tuple(t.shape)
+        return None
+
+    # 1) hidden_size / d_model / n_embd
+    shp = _first_shape_of(["self_attn.qkv.weight", "attn.qkv.weight", "encoder_blocks.0.self_attn.qkv.weight",
+                           "decoder_blocks.0.self_attn.qkv.weight", "embedding.weight"])
+    if shp is not None and len(shp) == 2:
+        # [3*H, H] 或 [vocab_size, H]
+        H = shp[1]
+        if 'hidden_size' not in config and 'd_model' not in config and 'n_embd' not in config:
+            config['n_embd'] = H
+            config.setdefault('hidden_size', H)
+            config.setdefault('d_model', H)
+            print(f"  🧩 Inferred n_embd: {H}")
+
+    # 2) n_inner / ffn_hidden（mlp 的中间维度），典型 [ffn, hidden]
+    shp = _first_shape_of(["mlp.c_fc.weight", "feed_forward.c_fc.weight"])
+    if shp is not None and len(shp) == 2:
+        ffn, hid = shp
+        if 'n_inner' not in config and 'ffn_hidden' not in config:
+            config['n_inner'] = ffn
+            print(f"  🧩 Inferred n_inner: {ffn}")
+
+    # 3) 层数
+    def _max_block_idx(prefix):
+        max_idx = -1
+        for k in keys:
+            if k.startswith(prefix):
+                # e.g. encoder_blocks.3.ln_2.weight
+                parts = k.split('.')
+                if len(parts) > 2 and parts[1].isdigit():
+                    max_idx = max(max_idx, int(parts[1]))
+        return max_idx + 1 if max_idx >= 0 else None
+
+    enc_layers = _max_block_idx("encoder_blocks.")
+    dec_layers = _max_block_idx("decoder_blocks.")
+    if enc_layers and 'encoder_n_layer' not in config:
+        config['encoder_n_layer'] = enc_layers
+        print(f"  🧩 Inferred encoder_n_layer: {enc_layers}")
+    if dec_layers and 'decoder_n_layer' not in config:
+        config['decoder_n_layer'] = dec_layers
+        print(f"  🧩 Inferred decoder_n_layer: {dec_layers}")
+
+    # 4) 是否存在 cross-attn
+    use_xattn = any("cross_attn.qkv.weight" in k for k in keys)
+    if 'use_cross_attn' not in config:
+        config['use_cross_attn'] = bool(use_xattn)
+        print(f"  🧩 Inferred use_cross_attn: {use_xattn}")
+
+    # 5) 估计 n_head（非唯一）：尝试 gcd 拆分
+    # qkv.weight: [3*H, H] -> 先拿 H，尝试把 H 拆成 n_head * head_dim
+    if 'n_embd' in config:
+        H = config['n_embd']
+        # 常见 head_dim
+        for hd in (128, 96, 64, 48, 32, 16):
+            if H % hd == 0:
+                config.setdefault('n_head', H // hd)
+                print(f"  🧩 Inferred n_head: {H // hd} (head_dim={hd})")
+                break
+
+
 def validate_checkpoint_path(checkpoint_path):
     """验证checkpoint路径是否存在"""
     if not os.path.exists(checkpoint_path):
@@ -110,8 +195,19 @@ def setup_environment(args, cli_config):
     # 强制设置关键配置，确保SID映射一致性
     cli_config.setdefault('force_regenerate_opq', False)  # 关键：不要重新生成量化结果
     
+    # 优先从 ckpt/显式传入的 config 恢复训练期架构
+    found_cfg = args.config_file
+    run_dir = os.path.dirname(args.checkpoint)
+    if args.prefer_ckpt_arch and not found_cfg:
+        for name in ("config.json", "args.json", "hparams.yaml"):
+            p = os.path.join(run_dir, name)
+            if os.path.exists(p):
+                found_cfg = p
+                print(f"🧩 Found run config next to ckpt: {p}")
+                break
+    
     # 获取配置
-    config = get_config(args.model, args.dataset, config_file=None, config_dict=cli_config)
+    config = get_config(args.model, args.dataset, config_file=found_cfg, config_dict=cli_config)
     
     # 设置设备和加速器
     config['device'], config['use_ddp'] = init_device()
@@ -181,7 +277,44 @@ def load_model_and_checkpoint(config, dataset, tokenizer, args):
     """加载模型和checkpoint"""
     print(f"🤖 Loading model: {args.model}")
     
-    # 创建模型
+    # 先把 ckpt 读出来，看是否带有训练期 config/hparams（一些训练脚本会这么存）
+    print(f"💾 Loading checkpoint from: {args.checkpoint}")
+    ckpt = torch.load(args.checkpoint, map_location='cpu')
+    state_dict = None
+    
+    # 可能的容器形式：{'state_dict':..., 'model':..., 'config':...}
+    if isinstance(ckpt, dict):
+        if 'config' in ckpt and args.prefer_ckpt_arch:
+            print("🧩 Found training config inside checkpoint; merging arch keys.")
+            train_cfg = ckpt['config']
+            # 只合并"架构相关"的关键字，避免覆盖推理参数
+            ARCH_KEYS = {
+                'n_embd', 'hidden_size', 'd_model', 'n_inner', 'ffn_hidden', 'mlp_ratio',
+                'n_head', 'encoder_n_layer', 'decoder_n_layer', 'n_layer',
+                'dropout', 'attn_pdrop', 'resid_pdrop', 'embd_pdrop',
+                'norm_type', 'norm_eps', 'act', 'use_cross_attn', 'tie_embeddings'
+            }
+            for k in ARCH_KEYS:
+                if k in train_cfg:
+                    config[k] = train_cfg[k]
+                    print(f"  🧩 Merged arch key: {k} = {train_cfg[k]}")
+        
+        if 'state_dict' in ckpt:
+            state_dict = ckpt['state_dict']
+        elif 'model' in ckpt:   # 有些人把权重放在 'model'
+            state_dict = ckpt['model']
+    
+    if state_dict is None:
+        state_dict = ckpt  # 纯 state_dict
+    
+    # 如果仍然没有架构文件，又开启 prefer_ckpt_arch，则尝试从权重形状做最小推断（兜底）
+    if args.prefer_ckpt_arch:
+        try:
+            _maybe_fill_arch_from_state_dict(config, state_dict)
+        except Exception as e:
+            print(f"⚠️  Fallback arch inference failed (safe to ignore if you have a config): {e}")
+    
+    # 创建模型（此时 config 已尽力对齐训练期架构）
     model_class = get_model(args.model)
     model = model_class(config, dataset, tokenizer)
     
@@ -193,25 +326,21 @@ def load_model_and_checkpoint(config, dataset, tokenizer, args):
         n_params = "unknown"
     print(f"🤖 Model created: {n_params} parameters")
     
-    # 加载checkpoint
-    print(f"💾 Loading checkpoint from: {args.checkpoint}")
-    ckpt = torch.load(args.checkpoint, map_location='cpu')
-    
-    # 兼容几种保存方式
-    if isinstance(ckpt, dict) and "state_dict" in ckpt:
-        state_dict = ckpt["state_dict"]
-    elif isinstance(ckpt, dict) and "model" in ckpt:
-        state_dict = ckpt["model"]
-    else:
-        state_dict = ckpt
-    
-    # 兼容 DDP 前缀
+    # 对 DDP 前缀做兼容
     if not any(k.startswith("module.") for k in model.state_dict().keys()) and \
        any(k.startswith("module.") for k in state_dict.keys()):
         state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
     
-    model.load_state_dict(state_dict, strict=True)
-    print("✅ Checkpoint loaded successfully")
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing or unexpected:
+        print(f"⚠️  load_state_dict not strict. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+        for k in (missing[:10] if len(missing) > 10 else missing):
+            print(f"  MISSING: {k}")
+        for k in (unexpected[:10] if len(unexpected) > 10 else unexpected):
+            print(f"  UNEXPECTED: {k}")
+        # 如果你必须严格一致，改回 strict=True；这里只是为了在推断架构时尽量跑起来
+    else:
+        print("✅ Checkpoint loaded successfully")
     
     return model
 

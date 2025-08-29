@@ -31,6 +31,7 @@ python eval_checkpoint.py \
     --dataset=$DATASET \
     --category=$CATEGORY \
     --checkpoint="$CHECKPOINT" \
+    --prefer_ckpt_arch \
     --beam_search_modes='["confidence"]' \
     --vectorized_beam_search='{
         "top_k_final": 10,
@@ -63,6 +64,7 @@ python eval_checkpoint.py \
     --dataset=$DATASET \
     --category=$CATEGORY \
     --checkpoint="$CHECKPOINT" \
+    --prefer_ckpt_arch \
     --beam_search_modes='["confidence", "random"]' \
     --vectorized_beam_search='{
         "top_k_final": 10,
@@ -97,6 +99,7 @@ python eval_checkpoint.py \
     --dataset=$DATASET \
     --category=$CATEGORY \
     --checkpoint="$CHECKPOINT" \
+    --prefer_ckpt_arch \
     --beam_search_modes='["confidence"]' \
     --vectorized_beam_search='{
         "top_k_final": 5,
