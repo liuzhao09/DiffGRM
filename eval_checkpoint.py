@@ -126,19 +126,29 @@ def _maybe_fill_arch_from_state_dict(config, sd):
     if shp is not None and len(shp) == 2:
         # [3*H, H] 或 [vocab_size, H]
         H = shp[1]
-        if 'hidden_size' not in config and 'd_model' not in config and 'n_embd' not in config:
-            config['n_embd'] = H
-            config.setdefault('hidden_size', H)
-            config.setdefault('d_model', H)
-            print(f"  🧩 Inferred n_embd: {H}")
+        old_val = config.get('n_embd', 'not set')
+        config['n_embd'] = H
+        config.setdefault('hidden_size', H)
+        config.setdefault('d_model', H)
+        print(f"  🧩 Inferred n_embd: {old_val} -> {H}")
 
     # 2) n_inner / ffn_hidden（mlp 的中间维度），典型 [ffn, hidden]
     shp = _first_shape_of(["mlp.c_fc.weight", "feed_forward.c_fc.weight"])
     if shp is not None and len(shp) == 2:
         ffn, hid = shp
-        if 'n_inner' not in config and 'ffn_hidden' not in config:
+        # 当prefer_ckpt_arch时，强制覆盖n_inner，避免被默认值卡住
+        if 'n_inner' not in config or config.get('n_inner') != ffn:
+            old_val = config.get('n_inner', 'not set')
             config['n_inner'] = ffn
-            print(f"  🧩 Inferred n_inner: {ffn}")
+            print(f"  🧩 Inferred n_inner: {old_val} -> {ffn}")
+        
+        # 同时设置mlp_ratio（如果d_model已知）
+        if 'n_embd' in config and config['n_embd'] > 0:
+            new_ratio = ffn // config['n_embd']
+            if new_ratio * config['n_embd'] == ffn:
+                old_ratio = config.get('mlp_ratio', 'not set')
+                config['mlp_ratio'] = new_ratio
+                print(f"  🧩 Inferred mlp_ratio: {old_ratio} -> {new_ratio}")
 
     # 3) 层数
     def _max_block_idx(prefix):
@@ -153,18 +163,22 @@ def _maybe_fill_arch_from_state_dict(config, sd):
 
     enc_layers = _max_block_idx("encoder_blocks.")
     dec_layers = _max_block_idx("decoder_blocks.")
-    if enc_layers and 'encoder_n_layer' not in config:
+    if enc_layers:
+        old_val = config.get('encoder_n_layer', 'not set')
         config['encoder_n_layer'] = enc_layers
-        print(f"  🧩 Inferred encoder_n_layer: {enc_layers}")
-    if dec_layers and 'decoder_n_layer' not in config:
+        config.setdefault('n_layer_encoder', enc_layers)  # 双写兼容
+        print(f"  🧩 Inferred encoder_n_layer: {old_val} -> {enc_layers}")
+    if dec_layers:
+        old_val = config.get('decoder_n_layer', 'not set')
         config['decoder_n_layer'] = dec_layers
-        print(f"  🧩 Inferred decoder_n_layer: {dec_layers}")
+        config.setdefault('n_layer_decoder', dec_layers)  # 双写兼容
+        print(f"  🧩 Inferred decoder_n_layer: {old_val} -> {dec_layers}")
 
     # 4) 是否存在 cross-attn
     use_xattn = any("cross_attn.qkv.weight" in k for k in keys)
-    if 'use_cross_attn' not in config:
-        config['use_cross_attn'] = bool(use_xattn)
-        print(f"  🧩 Inferred use_cross_attn: {use_xattn}")
+    old_val = config.get('use_cross_attn', 'not set')
+    config['use_cross_attn'] = bool(use_xattn)
+    print(f"  🧩 Inferred use_cross_attn: {old_val} -> {use_xattn}")
 
     # 5) 估计 n_head（非唯一）：尝试 gcd 拆分
     # qkv.weight: [3*H, H] -> 先拿 H，尝试把 H 拆成 n_head * head_dim
@@ -173,8 +187,9 @@ def _maybe_fill_arch_from_state_dict(config, sd):
         # 常见 head_dim
         for hd in (128, 96, 64, 48, 32, 16):
             if H % hd == 0:
-                config.setdefault('n_head', H // hd)
-                print(f"  🧩 Inferred n_head: {H // hd} (head_dim={hd})")
+                old_val = config.get('n_head', 'not set')
+                config['n_head'] = H // hd
+                print(f"  🧩 Inferred n_head: {old_val} -> {H // hd} (head_dim={hd})")
                 break
 
 
@@ -315,6 +330,15 @@ def load_model_and_checkpoint(config, dataset, tokenizer, args):
             print(f"⚠️  Fallback arch inference failed (safe to ignore if you have a config): {e}")
     
     # 创建模型（此时 config 已尽力对齐训练期架构）
+    if args.prefer_ckpt_arch:
+        print("🧾 Final architecture config:")
+        print(f"  d_model/n_embd: {config.get('d_model') or config.get('n_embd')}")
+        print(f"  n_inner: {config.get('n_inner')}")
+        print(f"  mlp_ratio: {config.get('mlp_ratio')}")
+        print(f"  n_head: {config.get('n_head')}")
+        print(f"  encoder_layers: {config.get('encoder_n_layer') or config.get('n_layer_encoder')}")
+        print(f"  decoder_layers: {config.get('decoder_n_layer') or config.get('n_layer_decoder') or config.get('n_layer')}")
+    
     model_class = get_model(args.model)
     model = model_class(config, dataset, tokenizer)
     
