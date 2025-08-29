@@ -129,7 +129,7 @@ class AbstractDataset:
     def _sliding_train(self, min_hist=2, max_hist=50):
         """
         只扩充 train，val / test 仍保持 leave-one-out。
-        确保训练样本的label不会出现在val和test的历史中
+        保证训练样本的 label 不与 val/test 的 target（最后一条交互）重叠
         
         Args:
             min_hist (int): 滑窗最短history长度（含label前的序列长度）
