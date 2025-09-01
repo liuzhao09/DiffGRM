@@ -158,7 +158,7 @@ mask_schedule:
 
 # ─── 新增：消融式（减少步数）解码开关与超参（默认关闭，不影响原流程） ─────────────
 ablate_decode:
-  enabled: true           # true=启用消融；false=完全不走该分支
+  enabled: false           # true=启用消融；false=完全不走该分支
   per_digit_topk: null     # 组合阶段每列先取的 topL；null=等同 beam_act
   beam:
     val:  { beam_act: 32 }

@@ -176,7 +176,7 @@ CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
   --sid-quantizer opq_pq \
   --models Alibaba-NLP/gte-large-en-v1.5 \
   --digits 4 \
-  --pca 256 \
+  --pca 512 \
   --codebook-size 256 \
   --faiss-omp-num-threads 8 \
   --out reports/sid_conflict_report_toys.csv \
