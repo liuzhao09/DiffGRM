@@ -175,8 +175,8 @@ CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
   --category Toys_and_Games \
   --sid-quantizer opq_pq \
   --models Alibaba-NLP/gte-large-en-v1.5 \
-  --digits 3 4 5 \
-  --pca 256 300 \
+  --digits 4 \
+  --pca 256 \
   --codebook-size 256 \
   --opq-use-gpu \
   --faiss-omp-num-threads 8 \

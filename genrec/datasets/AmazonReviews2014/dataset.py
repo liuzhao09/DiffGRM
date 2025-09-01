@@ -112,11 +112,25 @@ class AmazonReviews2014(AbstractDataset):
         Yields:
             object: Each line of the gzipped file, parsed as a dict.
         """
-        # 🚀 修复：直接使用JSON解析，Amazon数据是JSONL格式
+        # 更稳健的解析：优先 JSON，其次 ast.literal_eval，容忍个别非严格 JSON 行
         import json
+        import ast
         with gzip.open(path, 'rt', encoding='utf-8') as g:
             for line in g:
-                yield json.loads(line)
+                if not line:
+                    continue
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    yield json.loads(s)
+                except Exception:
+                    try:
+                        obj = ast.literal_eval(s)
+                        yield obj
+                    except Exception:
+                        # 跳过无法解析的异常行
+                        continue
 
     def _load_reviews(self, path: str) -> list:
         """
