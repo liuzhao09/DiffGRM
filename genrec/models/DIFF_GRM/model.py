@@ -11,6 +11,7 @@ import numpy as np
 from genrec.model import AbstractModel
 from genrec.dataset import AbstractDataset
 from genrec.tokenizer import AbstractTokenizer
+from .ablate_decode import decode_ablate_confidence
 
 
 def make_norm(norm_type: str, dim: int, eps: float):
@@ -53,7 +54,7 @@ class MultiHeadAttention(nn.Module):
             T_kv = T
 
         # Handle past key-value cache for incremental decoding
-        if past_key_value is not None and use_cache:
+        if past_key_value is not None and use_cache and is_decoder_self_attn:
             past_k, past_v = past_key_value
             k = torch.cat([past_k, k], dim=1)
             v = torch.cat([past_v, v], dim=1)
@@ -388,6 +389,22 @@ class DIFF_GRM(AbstractModel):
         
         # Initialize weights
         self.apply(self._init_weights)
+
+        # 当启用 ablation 时，自动注入 confidence_s1/s2/s3 模式以确保评估阶段会跑三种
+        ab_cfg = self.config.get('ablate_decode', {}) or {}
+        if bool(ab_cfg.get('enabled', False)):
+            modes = list(self.config.get('beam_search_modes', []) or [])
+            to_add = ['confidence_s1', 'confidence_s2', 'confidence_s3']
+            if 'confidence' in modes:
+                base = modes.index('confidence')
+                for i, m in enumerate(to_add, 1):
+                    if m not in modes:
+                        modes.insert(base + i, m)
+            else:
+                for m in reversed(to_add):
+                    if m not in modes:
+                        modes.insert(0, m)
+            self.config['beam_search_modes'] = modes
 
     def resample_mask_prob_if_needed(self):
         """
@@ -1021,19 +1038,58 @@ class DIFF_GRM(AbstractModel):
             with torch.no_grad():
                 encoder_outputs = self.forward(batch, return_loss=False)
                 encoder_hidden = encoder_outputs.hidden_states
-                
-                # 使用快速向量化beam search
+
+                # 路由：原生4步 / 随机
+                if mode in ("confidence", "random"):
+                    generated_sequences = fast_beam_search_for_eval(
+                        model=self,
+                        encoder_hidden=encoder_hidden,
+                        beam_size=n_return_sequences,
+                        max_len=self.n_digit,
+                        tokenizer=self.tokenizer,
+                        mode=mode,
+                        rand_cfg=self.config.get("random_beam", {})
+                    )
+                    return generated_sequences
+
+                # 路由：消融式 1/2/3 步（仅置信度）
+                if mode.startswith("confidence_s") and bool(self.config.get('ablate_decode', {}).get('enabled', False)):
+                    try:
+                        steps = int(mode.split("confidence_s")[-1])
+                    except Exception:
+                        steps = int(self.config.get('ablate_decode', {}).get('steps_default', 3))
+                    if steps >= 4:
+                        # 回退到原4步
+                        generated_sequences = fast_beam_search_for_eval(
+                            model=self,
+                            encoder_hidden=encoder_hidden,
+                            beam_size=n_return_sequences,
+                            max_len=self.n_digit,
+                            tokenizer=self.tokenizer,
+                            mode="confidence",
+                            rand_cfg=self.config.get("random_beam", {})
+                        )
+                    else:
+                        generated_sequences = decode_ablate_confidence(
+                            model=self,
+                            encoder_hidden=encoder_hidden,
+                            tokenizer=self.tokenizer,
+                            steps=steps,
+                            n_return_sequences=n_return_sequences,
+                        )
+                    return generated_sequences
+
+                # 兜底：未知模式，走原4步
                 generated_sequences = fast_beam_search_for_eval(
                     model=self,
                     encoder_hidden=encoder_hidden,
                     beam_size=n_return_sequences,
                     max_len=self.n_digit,
                     tokenizer=self.tokenizer,
-                    mode=mode,
+                    mode="confidence",
                     rand_cfg=self.config.get("random_beam", {})
                 )
-            
-            return generated_sequences
+                return generated_sequences
             
         finally:
             # 恢复原始训练状态，避免影响后续训练
