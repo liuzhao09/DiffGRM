@@ -104,6 +104,15 @@ def check_conflicts_once(
     if category:
         cfg_overrides["category"] = category
 
+    # 注入简易 accelerator，使得不经训练管线也可安全调用 tokenizer/dataset/logger
+    try:
+        from types import SimpleNamespace
+        cfg_overrides["accelerator"] = SimpleNamespace(is_main_process=True)
+    except Exception:
+        class _DummyAccel:
+            is_main_process = True
+        cfg_overrides["accelerator"] = _DummyAccel()
+
     if sid_quantizer == "rq_kmeans":
         cfg_overrides["sent_emb_pca"] = 0
 

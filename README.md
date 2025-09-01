@@ -169,3 +169,17 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
 ```
 
 
+
+CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
+  --dataset AmazonReviews2014 \
+  --category Toys_and_Games \
+  --sid-quantizer opq_pq \
+  --models Alibaba-NLP/gte-large-en-v1.5 \
+  --digits 3 4 5 \
+  --pca 256 300 \
+  --codebook-size 256 \
+  --opq-use-gpu \
+  --faiss-omp-num-threads 8 \
+  --force-regen \
+  --out reports/sid_conflict_report_toys.csv \
+  --dump-collisions reports/sid_collisions_toys.csv
