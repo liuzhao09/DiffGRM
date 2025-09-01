@@ -6,6 +6,7 @@ import sys
 import csv
 from typing import Optional
 import argparse
+import traceback
 from collections import defaultdict
 
 import numpy as np
@@ -126,6 +127,19 @@ def check_conflicts_once(
             return {"skip_reason": f"effective_dim({d_eff}) % n_digit({n_digit}) != 0 for OPQ/PQ"}
 
     config = get_config("DIFF_GRM", dataset_name, config_file=None, config_dict=cfg_overrides)
+    # 再次注入（某些清洗流程可能丢失该对象）
+    try:
+        _ = config.get("accelerator", None)
+    except Exception:
+        _ = None
+    if _ is None:
+        try:
+            from types import SimpleNamespace
+            config["accelerator"] = SimpleNamespace(is_main_process=True)
+        except Exception:
+            class _DummyAccel2:
+                is_main_process = True
+            config["accelerator"] = _DummyAccel2()
     dataset_cls = get_dataset(dataset_name)
     dataset = dataset_cls(config)
 
@@ -295,6 +309,7 @@ def main():
                 dump_writer=dump_writer,
             )
         except Exception as e:
+            traceback.print_exc()
             skip_reason = str(e)
 
         if result is not None and "skip_reason" in result:
