@@ -178,8 +178,6 @@ CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
   --digits 4 \
   --pca 256 \
   --codebook-size 256 \
-  --opq-use-gpu \
   --faiss-omp-num-threads 8 \
-  --force-regen \
   --out reports/sid_conflict_report_toys.csv \
   --dump-collisions reports/sid_collisions_toys.csv

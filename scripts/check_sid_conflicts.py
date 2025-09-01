@@ -197,6 +197,12 @@ def check_conflicts_once(
     ex_conflicts = np.array(conflict_counts_per_example)
     u_conflicts = np.array(list(conflict_counts_per_unique_item.values()))
 
+    # 分子/分母与比例
+    n_ex_conflicted = int((ex_conflicts > 0).sum())
+    n_u_conflicted = int((u_conflicts > 0).sum())
+    ex_rate = float(n_ex_conflicted / n_examples) if n_examples > 0 else 0.0
+    u_rate = float(n_u_conflicted / n_unique_targets) if n_unique_targets > 0 else 0.0
+
     result = {
         "n_digit": n_digit,
         "codebook_size": codebook_size,
@@ -206,10 +212,12 @@ def check_conflicts_once(
         "sent_emb_pca": cfg_overrides["sent_emb_pca"],
         "n_test_examples": n_examples,
         "n_unique_targets": n_unique_targets,
-        "examples_conflict_rate": float((ex_conflicts > 0).mean()) if n_examples > 0 else 0.0,
+        "examples_conflicted": n_ex_conflicted,
+        "examples_conflict_rate": ex_rate,
         "examples_mean_conflicts_if_conflicted": float(ex_conflicts[ex_conflicts > 0].mean()) if (ex_conflicts > 0).any() else 0.0,
         "examples_max_conflicts": int(ex_conflicts.max()) if ex_conflicts.size else 0,
-        "unique_items_conflict_rate": float((u_conflicts > 0).mean()) if n_unique_targets > 0 else 0.0,
+        "unique_items_conflicted": n_u_conflicted,
+        "unique_items_conflict_rate": u_rate,
         "unique_items_mean_conflicts_if_conflicted": float(u_conflicts[u_conflicts > 0].mean()) if (u_conflicts > 0).any() else 0.0,
         "unique_items_max_conflicts": int(u_conflicts.max()) if u_conflicts.size else 0,
         "worst_examples": ";".join(
@@ -246,8 +254,8 @@ def main():
         "dataset", "n_digit", "codebook_size", "sid_quantizer",
         "sent_emb_model", "sent_emb_dim", "sent_emb_pca",
         "n_test_examples", "n_unique_targets",
-        "examples_conflict_rate", "examples_mean_conflicts_if_conflicted", "examples_max_conflicts",
-        "unique_items_conflict_rate", "unique_items_mean_conflicts_if_conflicted", "unique_items_max_conflicts",
+        "examples_conflicted", "examples_conflict_rate", "examples_mean_conflicts_if_conflicted", "examples_max_conflicts",
+        "unique_items_conflicted", "unique_items_conflict_rate", "unique_items_mean_conflicts_if_conflicted", "unique_items_max_conflicts",
         "worst_examples", "skip_reason"
     ]
 
@@ -286,9 +294,11 @@ def main():
             "sent_emb_pca": pca_dim,
             "n_test_examples": "",
             "n_unique_targets": "",
+            "examples_conflicted": "",
             "examples_conflict_rate": "",
             "examples_mean_conflicts_if_conflicted": "",
             "examples_max_conflicts": "",
+            "unique_items_conflicted": "",
             "unique_items_conflict_rate": "",
             "unique_items_mean_conflicts_if_conflicted": "",
             "unique_items_max_conflicts": "",
@@ -326,9 +336,11 @@ def main():
                 "sent_emb_pca": result.get("sent_emb_pca"),
                 "n_test_examples": result.get("n_test_examples"),
                 "n_unique_targets": result.get("n_unique_targets"),
+                "examples_conflicted": result.get("examples_conflicted"),
                 "examples_conflict_rate": result.get("examples_conflict_rate"),
                 "examples_mean_conflicts_if_conflicted": result.get("examples_mean_conflicts_if_conflicted"),
                 "examples_max_conflicts": result.get("examples_max_conflicts"),
+                "unique_items_conflicted": result.get("unique_items_conflicted"),
                 "unique_items_conflict_rate": result.get("unique_items_conflict_rate"),
                 "unique_items_mean_conflicts_if_conflicted": result.get("unique_items_mean_conflicts_if_conflicted"),
                 "unique_items_max_conflicts": result.get("unique_items_max_conflicts"),
@@ -336,9 +348,8 @@ def main():
             })
             print(
                 f"[n_digit={nd} | model={sent_model} | pca={pca_dim}] "
-                f"Ex-ConflictRate={out_row['examples_conflict_rate']:.4f}, "
-                f"Uniq-ConflictRate={out_row['unique_items_conflict_rate']:.4f}, "
-                f"MaxConflicts(uniq)={out_row['unique_items_max_conflicts']}"
+                f"LOO last-item SID冲突率 = {out_row['examples_conflicted']}/{out_row['n_test_examples']} = {out_row['examples_conflict_rate']:.4f}  | "
+                f"(去重item级 = {out_row['unique_items_conflicted']}/{out_row['n_unique_targets']} = {out_row['unique_items_conflict_rate']:.4f})"
             )
         else:
             out_row["skip_reason"] = skip_reason or "unknown"
