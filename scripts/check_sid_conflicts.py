@@ -8,7 +8,7 @@ from typing import Optional
 import argparse
 import traceback
 from contextlib import contextmanager
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 import numpy as np
 
@@ -197,7 +197,7 @@ def check_conflicts_once(
                 "target_item": tgt,
                 "collision_size": cnt - 1,
                 "sid": str(cb),
-                "others": ";".join(others),
+                "others": ";".join(map(str, others)),
             })
 
     ex_conflicts = np.array(conflict_counts_per_example)
