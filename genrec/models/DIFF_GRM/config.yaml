@@ -163,3 +163,7 @@ ablate_decode:
   beam:
     val:  { beam_act: 32 }
     test: { beam_act: 128 }
+
+# ─── 新增：评估时将 SID 组合按簇展开到 item 再评估（可开关） ─────────────
+eval_expand_sid_to_items: true   # true=额外输出一套 _xitem 指标；false=仅原SID级指标
+eval_expand_dedup: first          # 展开前对 SID 去重策略：first（仅保留首次）

@@ -668,3 +668,48 @@ class DIFF_GRMTokenizer(AbstractTokenizer):
             tokenized_datasets[split].set_format(type='torch')
 
         return tokenized_datasets 
+
+    # ====== 新增：SID→items 映射与工具 ======
+    def _sid_tokens_to_cb_tuple(self, tokens):
+        """
+        把带 offset 的 SID-token（长度 n_digit）转换为 codebook 索引 tuple（每位 0..K-1）。
+        例如 [sid_offset + 0*K + a, sid_offset + 1*K + b, ...] → (a,b,...)
+        """
+        assert len(tokens) == self.n_digit
+        cb = []
+        for d, tok in enumerate(tokens):
+            cb.append(int(tok) - (self.sid_offset + d * self.codebook_size))
+        return tuple(cb)
+
+    def _build_cb2items_map(self):
+        """
+        基于 self.item2tokens 构建 SID 组合 → items 的倒排表。
+        注意：允许一对多（发生“冲突”时都放进去）。
+        """
+        from collections import defaultdict
+        cb2items = defaultdict(list)
+        for item, toks in self.item2tokens.items():
+            cb = self._sid_tokens_to_cb_tuple(toks)
+            cb2items[cb].append(item)
+        return cb2items
+
+    @property
+    def cb2items(self):
+        """
+        惰性缓存：首次访问时构建 SID→items 映射并缓存到 _cb2items
+        """
+        if not hasattr(self, "_cb2items") or self._cb2items is None:
+            self._cb2items = self._build_cb2items_map()
+        return self._cb2items
+
+    def cb_tuple_to_item_ids(self, cb):
+        """
+        给定一个 codebook tuple，返回对应的 item_id 列表（按构建顺序稳定）。
+        """
+        items = self.cb2items.get(cb, [])
+        out = []
+        for it in items:
+            iid = self.item2id.get(it, 0)
+            if iid > 0:
+                out.append(iid)
+        return out

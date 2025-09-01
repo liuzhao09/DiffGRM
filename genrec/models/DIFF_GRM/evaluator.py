@@ -40,6 +40,19 @@ class DIFF_GRMEvaluator:
         print(f'>> Fixed: index bounds checking to prevent out-of-bounds errors')
         print(f'>> Added: illegal sequence filtering for more accurate evaluation')
 
+        # ==== 新增：是否启用“SID→item 展开评估”开关 ====
+        self.eval_expand = bool(self.config.get('eval_expand_sid_to_items', False))
+        # 展开前是否对 SID 去重的策略（目前只支持 first）
+        self.eval_expand_dedup = str(self.config.get('eval_expand_dedup', 'first')).lower()
+
+        # 取 cb2items 映射（来自 tokenizer 惰性缓存）
+        self.cb2items = getattr(self.tokenizer, 'cb2items', None)
+        if self.cb2items is None:
+            try:
+                self.cb2items = self.tokenizer._build_cb2items_map()
+            except Exception:
+                self.cb2items = {}
+
 
 
     def calculate_pos_index(self, preds, labels):
@@ -114,6 +127,48 @@ class DIFF_GRMEvaluator:
         
         # 对于单标签推荐任务，IDCG=1.0，所以DCG就是NDCG
         return dcg_scores.cpu().float()
+
+    # ===== 工具：把 SID（codebook id 序列）转为 cb tuple =====
+    def _sid_row_to_cb(self, sid_row):
+        # sid_row: [n_digit]，元素 ∈ [0..K-1]
+        return tuple(int(x) for x in sid_row.tolist())
+
+    # ===== 核心：把“合法且去重后的 SID 列表”展开为 item_id 排序表（截断 K）=====
+    def _expand_sid_list_to_items(self, sid_list, K):
+        seen = set()
+        expanded = []
+        if sid_list.ndim != 2:
+            return expanded
+        M, _ = sid_list.shape
+        for i in range(M):
+            cb = self._sid_row_to_cb(sid_list[i])
+            # 去非法
+            if cb not in self.cb2items:
+                continue
+            # 去重
+            if self.eval_expand_dedup == 'first':
+                if cb in seen:
+                    continue
+                seen.add(cb)
+            # 展开为 item_id
+            iid_list = self.tokenizer.cb_tuple_to_item_ids(cb) if hasattr(self.tokenizer, 'cb_tuple_to_item_ids') else []
+            for iid in iid_list:
+                expanded.append(iid)
+                if len(expanded) >= K:
+                    return expanded
+        return expanded
+
+    # ===== 基于“展开后的 item 列表”构造 pos_index（找目标 item 的首次命中位）=====
+    def _build_pos_index_from_items(self, item_ranked, target_item_id, Kmax):
+        hit_pos = None
+        for idx, iid in enumerate(item_ranked):
+            if iid == target_item_id:
+                hit_pos = idx
+                break
+        pos = torch.zeros(Kmax, dtype=torch.bool)
+        if hit_pos is not None and hit_pos < Kmax:
+            pos[hit_pos] = True
+        return pos
 
     def _dup_ratio_per_user(self, preds, k=10):
         """
@@ -208,6 +263,47 @@ class DIFF_GRMEvaluator:
         if suffix == "":  # 仅confidence模式才算weighted_score
             weighted_score = self.calculate_weighted_score(preds, labels)
             results['weighted_score'] = weighted_score
+
+        # ====== 新增：按簇展开 → item 级评估（额外产出一套指标，带 _xitem 后缀）======
+        if self.eval_expand:
+            B, maxk, n_digit = preds.shape
+            # 1) 标签 SID → 目标 item_id
+            target_item_ids = []
+            for i in range(B):
+                lab = labels[i].tolist()
+                target_iid = self.tokenizer.codebooks_to_item_id(lab)
+                target_item_ids.append(int(target_iid) if target_iid is not None else 0)
+
+            # 2) 展开每个样本的 SID Top-maxk → item Top-Kmax
+            Kmax = self.maxk
+            pos_index_item = torch.zeros(B, Kmax, dtype=torch.bool)
+            dup10_list = []
+
+            for i in range(B):
+                sid_top = preds[i]
+                expanded_items = self._expand_sid_list_to_items(sid_top, K=Kmax)
+
+                k10 = min(10, len(expanded_items))
+                if k10 > 0:
+                    uniq = len(set(expanded_items[:k10]))
+                    dup10_list.append(1 - uniq / k10)
+                else:
+                    dup10_list.append(1.0)
+
+                pos_index_item[i] = self._build_pos_index_from_items(
+                    expanded_items, target_item_ids[i], Kmax
+                )
+
+            # 3) 计算 item 级指标
+            for metric in self.config['metrics']:
+                for k in self.config['topk']:
+                    results[f"{metric}@{k}{suffix}_xitem"] = self.metric2func[metric](pos_index_item, k)
+
+            ndcg_10_x = self.ndcg_at_k(pos_index_item, k=10)
+            recall_10_x = self.recall_at_k(pos_index_item, k=10)
+            weighted_x = 0.8 * ndcg_10_x + 0.2 * recall_10_x
+            results[f"weighted_score{suffix}_xitem"] = weighted_x
+            results[f"dup@10{suffix}_xitem"] = torch.tensor(dup10_list, dtype=torch.float32)
         
         return results
     
