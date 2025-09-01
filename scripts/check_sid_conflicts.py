@@ -7,6 +7,7 @@ import csv
 from typing import Optional
 import argparse
 import traceback
+from contextlib import contextmanager
 from collections import defaultdict
 
 import numpy as np
@@ -23,6 +24,21 @@ try:
     from sentence_transformers import SentenceTransformer
 except Exception:
     SentenceTransformer = None
+
+
+class DummyAccelerator:
+    def __init__(self):
+        self.is_main_process = True
+
+    @contextmanager
+    def main_process_first(self, local: bool = False):
+        yield
+
+    def wait_for_everyone(self):
+        return
+
+    def print(self, *args, **kwargs):
+        print(*args, **kwargs)
 
 
 def infer_sent_emb_dim(model_id: str) -> int:
@@ -106,13 +122,7 @@ def check_conflicts_once(
         cfg_overrides["category"] = category
 
     # 注入简易 accelerator，使得不经训练管线也可安全调用 tokenizer/dataset/logger
-    try:
-        from types import SimpleNamespace
-        cfg_overrides["accelerator"] = SimpleNamespace(is_main_process=True)
-    except Exception:
-        class _DummyAccel:
-            is_main_process = True
-        cfg_overrides["accelerator"] = _DummyAccel()
+    cfg_overrides["accelerator"] = DummyAccelerator()
 
     if sid_quantizer == "rq_kmeans":
         cfg_overrides["sent_emb_pca"] = 0
@@ -128,18 +138,13 @@ def check_conflicts_once(
 
     config = get_config("DIFF_GRM", dataset_name, config_file=None, config_dict=cfg_overrides)
     # 再次注入（某些清洗流程可能丢失该对象）
+    acc = None
     try:
-        _ = config.get("accelerator", None)
+        acc = config.get("accelerator", None)
     except Exception:
-        _ = None
-    if _ is None:
-        try:
-            from types import SimpleNamespace
-            config["accelerator"] = SimpleNamespace(is_main_process=True)
-        except Exception:
-            class _DummyAccel2:
-                is_main_process = True
-            config["accelerator"] = _DummyAccel2()
+        acc = None
+    if not hasattr(acc, "main_process_first"):
+        config["accelerator"] = DummyAccelerator()
     dataset_cls = get_dataset(dataset_name)
     dataset = dataset_cls(config)
 
