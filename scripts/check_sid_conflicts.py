@@ -159,6 +159,10 @@ def check_conflicts_once(
     for item, toks in tokenizer.item2tokens.items():
         item2cb[item] = tokens_to_codebooks(toks, tokenizer.sid_offset, tokenizer.codebook_size)
 
+    # 统计簇大小（N=item个数）直方图：例级 & 去重item级
+    ex_cluster_size_counter = Counter()
+    u_cluster_size_counter = Counter()
+
     conflict_counts_per_example = []
     conflict_counts_per_unique_item = {}
 
@@ -169,6 +173,7 @@ def check_conflicts_once(
         cb = item2cb[tgt]
         cnt = len(cb2items.get(cb, []))
         conflict_counts_per_example.append(max(0, cnt - 1))
+        ex_cluster_size_counter[cnt] += 1
 
     for tgt in unique_targets:
         if tgt not in item2cb:
@@ -177,6 +182,7 @@ def check_conflicts_once(
         cb = item2cb[tgt]
         cnt = len(cb2items.get(cb, []))
         conflict_counts_per_unique_item[tgt] = max(0, cnt - 1)
+        u_cluster_size_counter[cnt] += 1
         # 可选：将发生冲突的 target 写出到 collisions 表
         if dump_writer is not None and cnt > 1:
             others = [x for x in cb2items.get(cb, []) if x != tgt]
@@ -196,6 +202,29 @@ def check_conflicts_once(
 
     ex_conflicts = np.array(conflict_counts_per_example)
     u_conflicts = np.array(list(conflict_counts_per_unique_item.values()))
+
+    # ---- 直方图工具 ----
+    def counter_to_str(counter: Counter) -> str:
+        if not counter:
+            return ""
+        return ",".join(f"{int(k)}:{int(counter[k])}" for k in sorted(counter))
+
+    def counter_rate(counter: Counter, denom: int, conflicted_only: bool = False) -> str:
+        if not counter or denom <= 0:
+            return ""
+        items = [(k, v) for k, v in counter.items() if (k >= 2 if conflicted_only else True)]
+        items.sort(key=lambda x: x[0])
+        return ",".join(f"{int(k)}:{(v/denom):.6f}" for k, v in items)
+
+    # 例级簇大小直方图
+    ex_hist_counts_str = counter_to_str(ex_cluster_size_counter)
+    ex_hist_rate_all_str = counter_rate(ex_cluster_size_counter, n_examples, conflicted_only=False)
+    ex_hist_rate_conflicted_str = counter_rate(ex_cluster_size_counter, int((ex_conflicts > 0).sum()), conflicted_only=True)
+
+    # 去重item级簇大小直方图
+    u_hist_counts_str = counter_to_str(u_cluster_size_counter)
+    u_hist_rate_all_str = counter_rate(u_cluster_size_counter, n_unique_targets, conflicted_only=False)
+    u_hist_rate_conflicted_str = counter_rate(u_cluster_size_counter, int((u_conflicts > 0).sum()), conflicted_only=True)
 
     # 分子/分母与比例
     n_ex_conflicted = int((ex_conflicts > 0).sum())
@@ -220,6 +249,12 @@ def check_conflicts_once(
         "unique_items_conflict_rate": u_rate,
         "unique_items_mean_conflicts_if_conflicted": float(u_conflicts[u_conflicts > 0].mean()) if (u_conflicts > 0).any() else 0.0,
         "unique_items_max_conflicts": int(u_conflicts.max()) if u_conflicts.size else 0,
+        "examples_cluster_hist_counts": ex_hist_counts_str,
+        "examples_cluster_hist_rate_all": ex_hist_rate_all_str,
+        "examples_cluster_hist_rate_conflicted": ex_hist_rate_conflicted_str,
+        "unique_cluster_hist_counts": u_hist_counts_str,
+        "unique_cluster_hist_rate_all": u_hist_rate_all_str,
+        "unique_cluster_hist_rate_conflicted": u_hist_rate_conflicted_str,
         "worst_examples": ";".join(
             f"{t}:{conflict_counts_per_unique_item[t]}"
             for t in sorted(conflict_counts_per_unique_item, key=lambda x: conflict_counts_per_unique_item[x], reverse=True)[:10]
@@ -256,6 +291,8 @@ def main():
         "n_test_examples", "n_unique_targets",
         "examples_conflicted", "examples_conflict_rate", "examples_mean_conflicts_if_conflicted", "examples_max_conflicts",
         "unique_items_conflicted", "unique_items_conflict_rate", "unique_items_mean_conflicts_if_conflicted", "unique_items_max_conflicts",
+        "examples_cluster_hist_counts", "examples_cluster_hist_rate_all", "examples_cluster_hist_rate_conflicted",
+        "unique_cluster_hist_counts", "unique_cluster_hist_rate_all", "unique_cluster_hist_rate_conflicted",
         "worst_examples", "skip_reason"
     ]
 
@@ -344,12 +381,22 @@ def main():
                 "unique_items_conflict_rate": result.get("unique_items_conflict_rate"),
                 "unique_items_mean_conflicts_if_conflicted": result.get("unique_items_mean_conflicts_if_conflicted"),
                 "unique_items_max_conflicts": result.get("unique_items_max_conflicts"),
+                "examples_cluster_hist_counts": result.get("examples_cluster_hist_counts"),
+                "examples_cluster_hist_rate_all": result.get("examples_cluster_hist_rate_all"),
+                "examples_cluster_hist_rate_conflicted": result.get("examples_cluster_hist_rate_conflicted"),
+                "unique_cluster_hist_counts": result.get("unique_cluster_hist_counts"),
+                "unique_cluster_hist_rate_all": result.get("unique_cluster_hist_rate_all"),
+                "unique_cluster_hist_rate_conflicted": result.get("unique_cluster_hist_rate_conflicted"),
                 "worst_examples": result.get("worst_examples"),
             })
             print(
                 f"[n_digit={nd} | model={sent_model} | pca={pca_dim}] "
                 f"LOO last-item SID冲突率 = {out_row['examples_conflicted']}/{out_row['n_test_examples']} = {out_row['examples_conflict_rate']:.4f}  | "
-                f"(去重item级 = {out_row['unique_items_conflicted']}/{out_row['n_unique_targets']} = {out_row['unique_items_conflict_rate']:.4f})"
+                f"(去重item级 = {out_row['unique_items_conflicted']}/{out_row['n_unique_targets']} = {out_row['unique_items_conflict_rate']:.4f})\n"
+                f"  - 例级簇大小(计数): {out_row['examples_cluster_hist_counts']}\n"
+                f"  - 例级簇大小(只在冲突样本中占比): {out_row['examples_cluster_hist_rate_conflicted']}\n"
+                f"  - 去重item级簇大小(计数): {out_row['unique_cluster_hist_counts']}\n"
+                f"  - 去重item级簇大小(只在冲突样本中占比): {out_row['unique_cluster_hist_rate_conflicted']}"
             )
         else:
             out_row["skip_reason"] = skip_reason or "unknown"

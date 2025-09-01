@@ -172,7 +172,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
 
 CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
   --dataset AmazonReviews2014 \
-  --category Toys_and_Games \
+  --category Sports_and_Outdoors \
   --sid-quantizer opq_pq \
   --models Alibaba-NLP/gte-large-en-v1.5 \
   --digits 4 \
