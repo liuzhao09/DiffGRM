@@ -116,7 +116,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
   --sent_emb_batch_size=256 \
   --normalize_after_pca=true \
   --force_regenerate_opq=true \
-  --share_decoder_output_embedding=true > runs/toys/h8_ls015_t5_pca256_guided_least_0_msp_1e4d_1024dim_9_4_0.txt 2>&1 &
+  --share_decoder_output_embedding=true > runs/toys/h8_ls015_t5_pca256_guided_least_0_msp_1e4d_1024dim_xxx_xxx_xxx.txt 2>&1 &
 ```
 
 

@@ -17,3 +17,6 @@ ckpt/
 data/
 saved/
 cache/
+runs/
+reports/
+scripts/
