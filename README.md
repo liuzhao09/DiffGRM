@@ -1,6 +1,6 @@
-# DiffGM
+# DiffGRM
 
-This repository provides the code for implementing DiffGM described in our paper.
+This repository provides the code for implementing DiffGRM described in our paper.
 
 ### Environment Setup
 
