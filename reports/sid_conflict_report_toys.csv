@@ -1,2 +1,0 @@
-dataset,n_digit,codebook_size,sid_quantizer,sent_emb_model,sent_emb_dim,sent_emb_pca,n_test_examples,n_unique_targets,examples_conflict_rate,examples_mean_conflicts_if_conflicted,examples_max_conflicts,unique_items_conflict_rate,unique_items_mean_conflicts_if_conflicted,unique_items_max_conflicts,worst_examples,skip_reason
-AmazonReviews2014,4,256,opq_pq,Alibaba-NLP/gte-large-en-v1.5,,256,,,,,,,,,,'types.SimpleNamespace' object has no attribute 'main_process_first'
