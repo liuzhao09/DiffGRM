@@ -1,123 +1,0 @@
-/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/accelerate/accelerator.py:399: UserWarning: `log_with=tensorboard` was passed but no supported trackers are currently installed.
-  warnings.warn(f"`log_with={log_with}` was passed but no supported trackers are currently installed.")
-Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
-INFO:root:Device: cuda
-INFO:root:[DATASET] Amazon Reviews 2014 for category: Toys_and_Games
-INFO:root:[DATASET] Reviews have been processed...
-INFO:root:[DATASET] Metadata has been processed...
-INFO:root:[Dataset] AmazonReviews2014
-	Number of users: 19413
-	Number of items: 11925
-	Number of interactions: 167597
-	Average item sequence length: 8.633235460773708
-INFO:root:[TOKENIZER] Index factory: OPQ4,IVF1,PQ4x8
-INFO:root:[TOKENIZER] Loading PCA-ed sentence embeddings from cache/AmazonReviews2014/Toys_and_Games/processed/bge-large-en-v1.5_pca256.sent_emb...
-INFO:root:[TOKENIZER] Sentence embeddings shape: (11924, 256)
-INFO:root:[TOKENIZER] Force regenerating OPQ quantization results...
-INFO:root:[TOKENIZER] Items for training: 11861 of 11924
-INFO:root:[TOKENIZER] Training items sample: ['B000G2JQB6', 'B00014BWQ6', 'B00FJQD88Q', 'B005YGWR4W', 'B002H5IIKK', 'B00DUEV1OM', 'B00DOOBWD8', 'B00CPNLECI', 'B004ZWKWQQ', '9269806723']
-INFO:root:[TOKENIZER] Mask shape: (11924,), True count: 11861
-INFO:faiss.loader:Loading faiss with AVX2 support.
-INFO:faiss.loader:Successfully loaded faiss with AVX2 support.
-INFO:faiss:Failed to load GPU Faiss: name 'GpuIndexIVFFlat' is not defined. Will not load constructor refs for GPU indexes. This is only an error if you're trying to use GPU Faiss.
-INFO:root:[TOKENIZER] sent_embs shape: (11924, 256)
-INFO:root:[TOKENIZER] train_mask shape: (11924,)
-INFO:root:[TOKENIZER] train_mask True count: 11861
-INFO:root:[TOKENIZER] Training index...
-INFO:root:[TOKENIZER] Saving semantic IDs to cache/AmazonReviews2014/Toys_and_Games/processed/bge-large-en-v1.5_pca256_OPQ4,IVF1,PQ4x8.sem_ids...
-INFO:root:[TOKENIZER] Loading semantic IDs from cache/AmazonReviews2014/Toys_and_Games/processed/bge-large-en-v1.5_pca256_OPQ4,IVF1,PQ4x8.sem_ids...
-INFO:root:[TOKENIZER] Force regenerate OPQ enabled, ignoring existing mapping files
-INFO:root:[TOKENIZER] Force regenerate OPQ enabled, generating new mappings
-INFO:root:[TOKENIZER] Saved mappings with tag: bge-large-en-v1.5_pca256_OPQ4,IVF1,PQ4x8_4d to cache/AmazonReviews2014/Toys_and_Games/processed
-INFO:root:[TOKENIZER] Files: item_id2tokens_bge-large-en-v1.5_pca256_OPQ4,IVF1,PQ4x8_4d.npy, tokens2item_bge-large-en-v1.5_pca256_OPQ4,IVF1,PQ4x8_4d.pkl
-Tokenizing train set:   0%|          | 0/87180 [00:00<?, ? examples/s]Tokenizing train set:   1%|          | 895/87180 [00:00<00:29, 2957.09 examples/s]Tokenizing train set:   2%|▏         | 1869/87180 [00:00<00:16, 5131.36 examples/s]Tokenizing train set:   3%|▎         | 2961/87180 [00:00<00:12, 6948.12 examples/s]Tokenizing train set:   5%|▍         | 4000/87180 [00:00<00:17, 4723.97 examples/s]Tokenizing train set:   6%|▌         | 5139/87180 [00:00<00:13, 6102.67 examples/s]Tokenizing train set:   7%|▋         | 6105/87180 [00:01<00:16, 4934.57 examples/s]Tokenizing train set:   8%|▊         | 7258/87180 [00:01<00:12, 6178.15 examples/s]Tokenizing train set:  10%|▉         | 8438/87180 [00:01<00:15, 4993.05 examples/s]Tokenizing train set:  11%|█▏        | 9878/87180 [00:01<00:12, 6333.31 examples/s]Tokenizing train set:  12%|█▏        | 10834/87180 [00:02<00:14, 5345.42 examples/s]Tokenizing train set:  14%|█▎        | 11905/87180 [00:02<00:12, 6270.10 examples/s]Tokenizing train set:  15%|█▍        | 13000/87180 [00:02<00:10, 6758.71 examples/s]Tokenizing train set:  16%|█▌        | 14000/87180 [00:02<00:12, 5806.23 examples/s]Tokenizing train set:  17%|█▋        | 15127/87180 [00:02<00:10, 6840.78 examples/s]Tokenizing train set:  18%|█▊        | 16000/87180 [00:02<00:12, 5638.84 examples/s]Tokenizing train set:  20%|█▉        | 17127/87180 [00:02<00:10, 6716.94 examples/s]Tokenizing train set:  21%|██        | 18009/87180 [00:03<00:12, 5425.61 examples/s]Tokenizing train set:  22%|██▏       | 19148/87180 [00:03<00:10, 6545.00 examples/s]Tokenizing train set:  23%|██▎       | 20465/87180 [00:03<00:11, 5895.27 examples/s]Tokenizing train set:  25%|██▌       | 21891/87180 [00:03<00:09, 7165.79 examples/s]Tokenizing train set:  26%|██▌       | 22861/87180 [00:03<00:10, 5968.95 examples/s]Tokenizing train set:  28%|██▊       | 23980/87180 [00:03<00:09, 6920.99 examples/s]Tokenizing train set:  29%|██▊       | 25000/87180 [00:04<00:08, 7190.60 examples/s]Tokenizing train set:  30%|██▉       | 26000/87180 [00:04<00:10, 5969.29 examples/s]Tokenizing train set:  31%|███       | 27153/87180 [00:04<00:08, 7041.29 examples/s]Tokenizing train set:  32%|███▏      | 28075/87180 [00:04<00:10, 5791.53 examples/s]Tokenizing train set:  34%|███▎      | 29230/87180 [00:04<00:08, 6897.08 examples/s]Tokenizing train set:  35%|███▍      | 30254/87180 [00:05<00:10, 5597.74 examples/s]Tokenizing train set:  37%|███▋      | 31910/87180 [00:05<00:07, 7244.28 examples/s]Tokenizing train set:  38%|███▊      | 33000/87180 [00:05<00:09, 5931.66 examples/s]Tokenizing train set:  39%|███▉      | 34000/87180 [00:05<00:08, 6644.68 examples/s]Tokenizing train set:  40%|████      | 34887/87180 [00:05<00:08, 5910.79 examples/s]Tokenizing train set:  41%|████▏     | 35967/87180 [00:05<00:07, 6852.18 examples/s]Tokenizing train set:  42%|████▏     | 37000/87180 [00:05<00:07, 7069.56 examples/s]Tokenizing train set:  44%|████▎     | 38000/87180 [00:06<00:08, 5919.49 examples/s]Tokenizing train set:  45%|████▍     | 39197/87180 [00:06<00:06, 7105.22 examples/s]Tokenizing train set:  46%|████▌     | 40062/87180 [00:06<00:08, 5711.17 examples/s]Tokenizing train set:  47%|████▋     | 41240/87180 [00:06<00:06, 6884.41 examples/s]Tokenizing train set:  49%|████▊     | 42438/87180 [00:06<00:07, 6021.63 examples/s]Tokenizing train set:  50%|█████     | 43899/87180 [00:07<00:05, 7393.12 examples/s]Tokenizing train set:  51%|█████▏    | 44834/87180 [00:07<00:06, 6122.61 examples/s]Tokenizing train set:  53%|█████▎    | 45953/87180 [00:07<00:05, 7074.04 examples/s]Tokenizing train set:  54%|█████▍    | 47000/87180 [00:07<00:05, 7360.69 examples/s]Tokenizing train set:  55%|█████▌    | 48000/87180 [00:07<00:06, 6113.45 examples/s]Tokenizing train set:  56%|█████▋    | 49177/87180 [00:07<00:05, 7223.75 examples/s]Tokenizing train set:  58%|█████▊    | 50883/87180 [00:08<00:05, 6660.09 examples/s]Tokenizing train set:  60%|█████▉    | 51887/87180 [00:08<00:06, 5867.58 examples/s]Tokenizing train set:  61%|██████    | 53000/87180 [00:08<00:05, 6415.27 examples/s]Tokenizing train set:  62%|██████▏   | 54158/87180 [00:08<00:04, 7394.71 examples/s]Tokenizing train set:  64%|██████▍   | 55918/87180 [00:08<00:04, 6948.92 examples/s]Tokenizing train set:  65%|██████▌   | 56861/87180 [00:09<00:05, 6000.62 examples/s]Tokenizing train set:  67%|██████▋   | 58000/87180 [00:09<00:04, 6544.24 examples/s]Tokenizing train set:  68%|██████▊   | 59202/87180 [00:09<00:03, 7580.92 examples/s]Tokenizing train set:  70%|██████▉   | 60883/87180 [00:09<00:03, 7032.76 examples/s]Tokenizing train set:  71%|███████   | 61834/87180 [00:09<00:04, 6064.90 examples/s]Tokenizing train set:  72%|███████▏  | 62954/87180 [00:09<00:03, 6962.73 examples/s]Tokenizing train set:  73%|███████▎  | 64000/87180 [00:10<00:03, 7246.70 examples/s]Tokenizing train set:  75%|███████▍  | 65000/87180 [00:10<00:03, 6167.19 examples/s]Tokenizing train set:  76%|███████▌  | 66167/87180 [00:10<00:02, 7228.56 examples/s]Tokenizing train set:  78%|███████▊  | 67934/87180 [00:10<00:02, 7018.66 examples/s]Tokenizing train set:  79%|███████▉  | 68887/87180 [00:10<00:03, 6080.87 examples/s]Tokenizing train set:  80%|████████  | 70000/87180 [00:10<00:02, 6596.23 examples/s]Tokenizing train set:  82%|████████▏ | 71204/87180 [00:11<00:02, 7648.39 examples/s]Tokenizing train set:  84%|████████▎ | 72906/87180 [00:11<00:02, 6971.22 examples/s]Tokenizing train set:  85%|████████▍ | 73861/87180 [00:11<00:02, 6021.29 examples/s]Tokenizing train set:  86%|████████▌ | 75000/87180 [00:11<00:01, 6557.73 examples/s]Tokenizing train set:  87%|████████▋ | 76192/87180 [00:11<00:01, 7575.20 examples/s]Tokenizing train set:  89%|████████▉ | 77907/87180 [00:12<00:01, 7108.82 examples/s]Tokenizing train set:  90%|█████████ | 78834/87180 [00:12<00:01, 6133.21 examples/s]Tokenizing train set:  92%|█████████▏| 79976/87180 [00:12<00:01, 7066.69 examples/s]Tokenizing train set:  93%|█████████▎| 81000/87180 [00:12<00:00, 7321.89 examples/s]Tokenizing train set:  94%|█████████▍| 82000/87180 [00:12<00:00, 6182.54 examples/s]Tokenizing train set:  95%|█████████▌| 83199/87180 [00:12<00:00, 7306.65 examples/s]Tokenizing train set:  97%|█████████▋| 84927/87180 [00:13<00:00, 6888.82 examples/s]Tokenizing train set:  99%|█████████▊| 85887/87180 [00:13<00:00, 5936.99 examples/s]Tokenizing train set: 100%|█████████▉| 87000/87180 [00:13<00:00, 6483.33 examples/s]Tokenizing train set: 100%|██████████| 87180/87180 [00:13<00:00, 6439.13 examples/s]
-Tokenizing val set:   0%|          | 0/19412 [00:00<?, ? examples/s]Tokenizing val set:   3%|▎         | 580/19412 [00:00<00:05, 3191.22 examples/s]Tokenizing val set:  10%|▉         | 1867/19412 [00:00<00:02, 6983.20 examples/s]Tokenizing val set:  15%|█▌        | 3000/19412 [00:00<00:02, 7671.03 examples/s]Tokenizing val set:  21%|██        | 3980/19412 [00:00<00:02, 6360.43 examples/s]Tokenizing val set:  26%|██▌       | 5000/19412 [00:00<00:02, 6878.47 examples/s]Tokenizing val set:  31%|███       | 6000/19412 [00:00<00:02, 5708.52 examples/s]Tokenizing val set:  37%|███▋      | 7160/19412 [00:01<00:01, 6970.64 examples/s]Tokenizing val set:  42%|████▏     | 8145/19412 [00:01<00:01, 5750.84 examples/s]Tokenizing val set:  51%|█████     | 9904/19412 [00:01<00:01, 7635.54 examples/s]Tokenizing val set:  57%|█████▋    | 11000/19412 [00:01<00:01, 5994.92 examples/s]Tokenizing val set:  63%|██████▎   | 12178/19412 [00:01<00:01, 7030.23 examples/s]Tokenizing val set:  72%|███████▏  | 13898/19412 [00:02<00:00, 6715.03 examples/s]Tokenizing val set:  77%|███████▋  | 15000/19412 [00:02<00:00, 7126.56 examples/s]Tokenizing val set:  82%|████████▏ | 16000/19412 [00:02<00:00, 6159.11 examples/s]Tokenizing val set:  89%|████████▊ | 17206/19412 [00:02<00:00, 7231.32 examples/s]Tokenizing val set:  97%|█████████▋| 18919/19412 [00:02<00:00, 6893.35 examples/s]Tokenizing val set: 100%|██████████| 19412/19412 [00:02<00:00, 6641.93 examples/s]
-Tokenizing test set:   0%|          | 0/19412 [00:00<?, ? examples/s]Tokenizing test set:   1%|          | 157/19412 [00:00<00:19, 981.12 examples/s]Tokenizing test set:   6%|▋         | 1225/19412 [00:00<00:03, 5554.64 examples/s]Tokenizing test set:  13%|█▎        | 2544/19412 [00:00<00:03, 5544.36 examples/s]Tokenizing test set:  20%|█▉        | 3879/19412 [00:00<00:02, 7391.01 examples/s]Tokenizing test set:  25%|██▌       | 4940/19412 [00:00<00:02, 6170.92 examples/s]Tokenizing test set:  31%|███       | 6000/19412 [00:00<00:02, 6677.02 examples/s]Tokenizing test set:  37%|███▋      | 7190/19412 [00:01<00:01, 7877.61 examples/s]Tokenizing test set:  46%|████▌     | 8880/19412 [00:01<00:01, 7170.10 examples/s]Tokenizing test set:  50%|█████     | 9755/19412 [00:01<00:01, 6099.47 examples/s]Tokenizing test set:  56%|█████▌    | 10887/19412 [00:01<00:01, 7058.99 examples/s]Tokenizing test set:  62%|██████▏   | 12000/19412 [00:01<00:00, 7470.76 examples/s]Tokenizing test set:  67%|██████▋   | 13000/19412 [00:01<00:01, 6346.02 examples/s]Tokenizing test set:  73%|███████▎  | 14211/19412 [00:02<00:00, 7500.36 examples/s]Tokenizing test set:  82%|████████▏ | 15908/19412 [00:02<00:00, 7099.06 examples/s]Tokenizing test set:  88%|████████▊ | 17000/19412 [00:02<00:00, 7443.24 examples/s]Tokenizing test set:  93%|█████████▎| 17976/19412 [00:02<00:00, 6759.47 examples/s]Tokenizing test set:  98%|█████████▊| 19000/19412 [00:02<00:00, 7030.70 examples/s]Tokenizing test set: 100%|██████████| 19412/19412 [00:02<00:00, 6844.28 examples/s]
-INFO:root:DIFF_GRM(
-  (embedding): Embedding(1027, 512)
-  (item_mlp): Sequential(
-    (0): Linear(in_features=2048, out_features=512, bias=True)
-    (1): ReLU()
-    (2): Linear(in_features=512, out_features=512, bias=True)
-  )
-  (mask_emb_table): Embedding(4, 512)
-  (pos_emb_enc): Embedding(50, 512)
-  (encoder_blocks): ModuleList(
-    (0-1): 2 x EncoderBlock(
-      (ln_1): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-      (attn): MultiHeadAttention(
-        (qkv): Linear(in_features=512, out_features=1536, bias=False)
-        (proj): Linear(in_features=512, out_features=512, bias=True)
-        (attn_dropout): Dropout(p=0.1, inplace=False)
-        (resid_dropout): Dropout(p=0.1, inplace=False)
-      )
-      (ln_2): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-      (mlp): FeedForward(
-        (c_fc): Linear(in_features=512, out_features=1024, bias=True)
-        (c_proj): Linear(in_features=1024, out_features=512, bias=True)
-        (dropout): Dropout(p=0.1, inplace=False)
-      )
-    )
-  )
-  (decoder_blocks): ModuleList(
-    (0-3): 4 x DecoderBlock(
-      (ln_1): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-      (self_attn): MultiHeadAttention(
-        (qkv): Linear(in_features=512, out_features=1536, bias=False)
-        (proj): Linear(in_features=512, out_features=512, bias=True)
-        (attn_dropout): Dropout(p=0.1, inplace=False)
-        (resid_dropout): Dropout(p=0.1, inplace=False)
-      )
-      (ln_2): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-      (cross_attn): MultiHeadAttention(
-        (qkv): Linear(in_features=512, out_features=1536, bias=False)
-        (proj): Linear(in_features=512, out_features=512, bias=True)
-        (attn_dropout): Dropout(p=0.1, inplace=False)
-        (resid_dropout): Dropout(p=0.1, inplace=False)
-      )
-      (ln_3): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-      (mlp): FeedForward(
-        (c_fc): Linear(in_features=512, out_features=1024, bias=True)
-        (c_proj): Linear(in_features=1024, out_features=512, bias=True)
-        (dropout): Dropout(p=0.1, inplace=False)
-      )
-    )
-  )
-  (ln_f): LayerNorm((512,), eps=1e-05, elementwise_affine=True)
-  (output_adapter): Identity()
-  (drop): Dropout(p=0.1, inplace=False)
-)
-INFO:root:18,674,176
-[MODEL] ▶ use SEQUENTIAL views: steps=4, paths=8, augment_factor=32
-[DIFF_GRM] Using shared embedding dot-product output layer
-[TRAINING] Evaluation config: start from epoch 20, interval: 2
-Training - [Epoch 1]:   0%|          | 0/86 [00:00<?, ?it/s]Training - [Epoch 1]:   0%|          | 0/86 [00:29<?, ?it/s]
-[DIFF_GRM] Using RPG_ED-style encoder: MLP compression + fixed 50-length sequence
-[DIFF_GRM] vocab_size: 1027, codebook_size: 256
-[DIFF_GRM] masking_strategy: sequential
-Traceback (most recent call last):
-  File "/share/liuzhao09/diffgm/main.py", line 31, in <module>
-    pipeline.run()
-  File "/share/liuzhao09/diffgm/genrec/pipeline.py", line 107, in run
-    best_epoch, best_val_score = self.trainer.fit(train_dataloader, val_dataloader)
-  File "/share/liuzhao09/diffgm/genrec/models/DIFF_GRM/trainer.py", line 104, in fit
-    outputs = self.model(batch, return_loss=True)
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
-    return forward_call(*args, **kwargs)
-  File "/share/liuzhao09/diffgm/genrec/models/DIFF_GRM/model.py", line 573, in forward
-    block_output = block(
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
-    return forward_call(*args, **kwargs)
-  File "/share/liuzhao09/diffgm/genrec/models/DIFF_GRM/model.py", line 170, in forward
-    cross_attn_output, cross_present = self.cross_attn(
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-  File "/root/anaconda3/envs/lz_grm_pd/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
-    return forward_call(*args, **kwargs)
-  File "/share/liuzhao09/diffgm/genrec/models/DIFF_GRM/model.py", line 67, in forward
-    att = torch.matmul(q, k.transpose(-2, -1)) * scale  # (B, n_head, T, T_kv)
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.12 GiB. GPU 0 has a total capacity of 79.15 GiB of which 1.82 GiB is free. Process 20478 has 77.32 GiB memory in use. Of the allocated memory 76.50 GiB is allocated by PyTorch, and 330.93 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
