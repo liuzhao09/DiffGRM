@@ -2,19 +2,6 @@
 
 This repository provides the code for implementing DiffGM described in our paper.
 
-## Introduction
-
-生成式推荐是新兴的序列推荐范式，主流的生成式推荐方式大多采用残差量化（RQ）的方式将用户历史行为（items）编码为离散的多级 sid，并用基于自回归的 Transformer 架构去生成多级 sid。但是基于 RQ 的 tokenizer 存在明显的语义沙漏问题【C1】，前面层包含主要信息，约到后面信息越少，这种现象导致扩展层数不但不能增加推荐精度，反而会增加推理耗时。
-
-而采用平行编码方式能够保证没有语义沙漏问题，每层 sid 包含的信息均衡，并且在流式数据下也验证了 4 层 扩展到 8 层在精度有提升。然而自回归架构必须顺序依赖【C2】，限制了平行语义编码的 sid 的能力，这导致在 codebook 层数相同的情况下，采用残差编码的方式一直比采用平行编码的方式效果好。
-
-为此我们借鉴 Gemini Diffusion 在 LLM 领域的启发，其打破了自回归范式的限制，能够双向捕获 token 之间的关系，并能够高效的并行推理，尽管这种方式有个很大的弊端就是上下文长度固定，这导致这种方式与自回归模型理论上可以无限长的上下文还有很大差距，在现有的 LLM 应用中也尚未普及。
-
-庆幸的是，在生成式推荐范式下，固定数量的 sid 去表示一个 item 是比较合适，故此 Diffusion Model 在 LLM 领域的上下文长度固定的问题并不会困扰我们，反而为我们平行语义编码的 sid 提供了感知双向关系、灵活并行生成赋能。
-
-
-## Installation
-
 ### Environment Setup
 
 1. **Clone the repository:**
@@ -169,15 +156,3 @@ CUDA_VISIBLE_DEVICES=1 python main.py \
 ```
 
 
-
-CUDA_VISIBLE_DEVICES=3 python check_sid_conflicts.py \
-  --dataset AmazonReviews2014 \
-  --category Sports_and_Outdoors \
-  --sid-quantizer opq_pq \
-  --models Alibaba-NLP/gte-large-en-v1.5 \
-  --digits 4 \
-  --pca 512 \
-  --codebook-size 256 \
-  --faiss-omp-num-threads 8 \
-  --out reports/sid_conflict_report_toys.csv \
-  --dump-collisions reports/sid_collisions_toys.csv
