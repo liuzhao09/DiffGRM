@@ -21,45 +21,6 @@ conda activate diffgm
 pip install -r requirements.txt
 ```
 
-### Requirements
-
-The main dependencies include:
-- **PyTorch** (2.6.0) - Deep learning framework
-- **Transformers** (4.53.2) - Hugging Face transformers library
-- **Sentence-Transformers** (3.3.1) - For sentence embeddings
-- **FAISS** (1.11.0) - For efficient similarity search
-- **Accelerate** (0.31.0) - For distributed training
-- **Wandb** (0.19.0) - For experiment tracking
-
-For GPU support, make sure you have CUDA installed. The requirements.txt includes CUDA 12.4 compatible versions.
-
-### System Requirements
-
-- **Python**: 3.8 or higher
-- **CUDA**: 11.8 or higher (for GPU training)
-- **Memory**: At least 16GB RAM (32GB recommended for large datasets)
-- **Storage**: At least 50GB free space for datasets and models
-
-## Quick Start
-
-Run the following command to start training the model with a specified category:
-
-```
-CUDA_VISIBLE_DEVICES=0 python main.py --category=Sports_and_Outdoors
-```
-
-Available categories:
-* `Sports_and_Outdoors`
-* `Beauty`
-* `Toys_and_Games`
-* `CDs_and_Vinyl`
-
-Note that:
-1. The datasets will be automatically downloaded once the `category` argument is specified.
-2. All hyperparameters can be specified via command line arguments. Please refer to:
-    * `genrec/default.yaml`
-    * `genrec/datasets/AmazonReviews2014/config.yaml`
-    * `genrec/models/RPG/config.yaml`
 
 ## Reproduction
 
