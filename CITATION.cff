@@ -1,0 +1,72 @@
+cff-version: 1.2.0
+message: "If you use DiffGRM in your research, please cite our WWW 2026 paper."
+title: "DiffGRM: Diffusion-based Generative Recommendation Model"
+type: software
+authors:
+  - family-names: Liu
+    given-names: Zhao
+    orcid: "https://orcid.org/0009-0004-7313-3864"
+    affiliation: Kuaishou Technology
+  - family-names: Zhu
+    given-names: Yichen
+    orcid: "https://orcid.org/0009-0005-1473-3525"
+    affiliation: Kuaishou Technology
+  - family-names: Yang
+    given-names: Yiqing
+    orcid: "https://orcid.org/0009-0002-4763-7183"
+    affiliation: Kuaishou Technology
+  - family-names: Lv
+    given-names: Xiao
+    orcid: "https://orcid.org/0000-0002-3393-4438"
+    affiliation: Kuaishou Technology
+  - family-names: Tang
+    given-names: Guoping
+    orcid: "https://orcid.org/0009-0002-4853-2180"
+    affiliation: Kuaishou Technology
+  - family-names: Huang
+    given-names: Rui
+    orcid: "https://orcid.org/0009-0006-5874-7037"
+    affiliation: Kuaishou Technology
+  - family-names: Luo
+    given-names: Qiang
+    orcid: "https://orcid.org/0009-0000-8432-5168"
+    affiliation: Kuaishou Technology
+  - family-names: Tang
+    given-names: Ruiming
+    orcid: "https://orcid.org/0000-0002-9224-2431"
+    affiliation: Kuaishou Technology
+  - family-names: Zhou
+    given-names: Guorui
+    orcid: "https://orcid.org/0009-0002-8550-279X"
+    affiliation: Kuaishou Technology
+repository-code: "https://github.com/liuzhao09/DiffGRM"
+url: "https://github.com/liuzhao09/DiffGRM"
+license: CC-BY-NC-4.0
+date-released: 2026-09-04
+preferred-citation:
+  type: conference-paper
+  title: "DiffGRM: Diffusion-based Generative Recommendation Model"
+  authors:
+    - family-names: Liu
+      given-names: Zhao
+    - family-names: Zhu
+      given-names: Yichen
+    - family-names: Yang
+      given-names: Yiqing
+    - family-names: Lv
+      given-names: Xiao
+    - family-names: Tang
+      given-names: Guoping
+    - family-names: Huang
+      given-names: Rui
+    - family-names: Luo
+      given-names: Qiang
+    - family-names: Tang
+      given-names: Ruiming
+    - family-names: Zhou
+      given-names: Guorui
+  collection-title: "Proceedings of the ACM Web Conference 2026"
+  year: 2026
+  start: 5853
+  end: 5864
+  doi: "10.1145/3774904.3792156"
